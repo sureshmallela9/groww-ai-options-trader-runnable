@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: groww-ai-options-trader
+  threads:
+    virtual:
+      enabled: true
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        options:
+          model: ${TRADING_MODEL_NAME:qwen2.5:7b}
+          temperature: 0.0
+          num-predict: 180
+server:
+  port: 8080
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+trading:
+  ai:
+    enabled: ${OLLAMA_ENABLED:true}
