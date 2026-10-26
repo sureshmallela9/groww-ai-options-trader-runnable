@@ -2,11 +2,23 @@ services:
   options-trader:
     build: .
     ports:
-      - "8080:8080"
+      - "1111:1111"
     environment:
-      OLLAMA_ENABLED: "true"
-      OLLAMA_BASE_URL: "http://host.docker.internal:11434"
-      TRADING_MODEL_NAME: "qwen2.5:7b"
+      SERVER_PORT: "1111"
+      DB_URL: "${DB_URL:-jdbc:oracle:thin:@//host.docker.internal:1521/XEPDB1}"
+      DB_USERNAME: "${DB_USERNAME:-GROWW_TRADER}"
+      DB_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD in the local .env file}"
+      OLLAMA_ENABLED: "${OLLAMA_ENABLED:-true}"
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+      TRADING_MODEL_NAME: "${TRADING_MODEL_NAME:-qwen2.5:7b}"
+      GROWW_API_ENABLED: "${GROWW_API_ENABLED:-false}"
+      GROWW_API_BASE_URL: "${GROWW_API_BASE_URL:-https://api.groww.in}"
+      GROWW_API_KEY: "${GROWW_API_KEY:-}"
+      GROWW_API_SECRET: "${GROWW_API_SECRET:-}"
+      GROWW_ACCESS_TOKEN: "${GROWW_ACCESS_TOKEN:-}"
+      GROWW_POLL_INTERVAL: "${GROWW_POLL_INTERVAL:-1000}"
+      TRADING_MODE: "PAPER"
+      LIVE_TRADING_ENABLED: "false"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

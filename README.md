@@ -1,32 +1,24 @@
-# Groww AI Options Trader — Spring AI + Ollama Paper MVP
+# Groww AI Options Trader — Oracle, Groww market data, and Ollama
 
-A Java 21 / Spring Boot starter with a browser dashboard, configurable paper-trading limits, simulated trade journal, and Spring AI integration to your existing local Ollama model (`qwen2.5:7b`). The app defaults to local Ollama enabled. If Ollama is unavailable, the analysis endpoint safely falls back to `NO_TRADE`.
+A Java 21 / Spring Boot paper-trading application. When configured, it reads live Groww index quotes and a compact NIFTY option-chain snapshot, sends that data to local Ollama for a streamed analysis, and stores paper trades and risk settings in Oracle.
 
-> **Safety and scope:** This is a paper-trading demo. It does not connect to Groww, use live market prices/options chains/news, or place broker orders. Trades use synthetic values. AI output is not a trading signal. Settings and trades are in-memory and reset on restart.
+> **Safety:** The application is hard-coded to paper mode. Paper entries and exits are simulated. No Groww order-placement API is called; `LIVE_TRADING_ENABLED` is forced to `false`. AI output cannot authorize an order.
 
-## Prerequisites (Windows 11)
+## Requirements
 
-- JDK 21
-- Maven 3.9+
-- IntelliJ IDEA (or VS Code)
-- Ollama already installed and running with `qwen2.5:7b` downloaded
+- JDK 21 and Maven 3.9+
+- Oracle database and a schema user with permissions to run Flyway migrations
+- Ollama running locally with the configured model (default `qwen2.5:7b`)
+- Groww Trading API access with live-data entitlement for market quotes and option-chain requests
 
-Verify Ollama first in PowerShell:
+Groww API-key/secret authentication requires daily approval from the Groww API keys page. Store the API **secret** as `GROWW_API_SECRET`; this is not your Groww account login password. Groww's current docs list the API token and read-only market-data endpoints and their rate limits: [authentication and rate limits](https://groww.in/trade-api/docs/curl), [live data and option chain](https://groww.in/trade-api/docs/curl/live-data). The app polls two index prices once per second (60 requests/minute), below the documented 300/minute live-data limit.
 
-```powershell
-ollama list
-ollama ps
-curl.exe http://localhost:11434/api/tags
-```
+## Configure
 
-If your installed model has a different name, set `TRADING_MODEL_NAME` accordingly. Do not download another model if `qwen2.5:7b` is already listed.
-
-## Run from IntelliJ IDEA
-
-1. Extract this ZIP to a normal writable folder, for example `C:\Projects\groww-ai-options-trader`.
-2. IntelliJ: **File → Open** and choose the extracted project root.
-3. Confirm **Project SDK = Java 21** and allow Maven to import `backend/pom.xml`.
-4. Open the IntelliJ Terminal and run:
+1. Copy `.env.example` to `.env` and replace the Oracle password and Groww API key/secret locally. Never commit `.env` or paste credentials into chat.
+2. Confirm the Groww API key is enabled and its daily approval is complete. Keep `GROWW_API_ENABLED=false` until credentials and entitlement are ready; change it to `true` to enable read-only market data.
+3. For direct Windows execution, keep `OLLAMA_BASE_URL=http://localhost:11434` and point `DB_URL` to your Oracle listener. For Docker Compose, the compose file maps Oracle and Ollama through `host.docker.internal` by default.
+4. Run from the project root:
 
 ```powershell
 cd backend
@@ -34,97 +26,34 @@ mvn clean package
 mvn spring-boot:run
 ```
 
-Or open `backend/src/main/java/com/optionstrader/OptionsTraderApplication.java` and run its `main` method.
+Open http://localhost:1111. Oracle migrations run at startup and create `GROWW_TRADER.TRADING_SETTINGS` and `GROWW_TRADER.PAPER_TRADES`. The configured Oracle user/schema must exist and allow table/index creation. Paper trades and risk settings persist across restarts; market snapshots are held in memory.
 
-The dashboard is served by Spring Boot at http://localhost:8080.
+## What the application does
 
-## Run with PowerShell environment overrides
+- Fetches `NIFTY` and `BANKNIFTY` LTPs from Groww every second when enabled; the UI no longer displays fabricated market prices.
+- Reads the nearest upcoming NIFTY expiry and option-chain data when analysis is requested. It sends the underlying price and the nearest five strikes/Greeks to Ollama.
+- Streams Ollama text to the UI. The analysis panel shows time to first content and total response time; `GET /api/ai/status` reports the last measurements.
+- Uses Java 21 virtual threads for request concurrency (`spring.threads.virtual.enabled=true`). This helps the server handle concurrent I/O; it does not make a single Ollama inference itself faster.
+- Stores paper trades and risk settings in Oracle. Paper fills remain synthetic and are not Groww orders.
+- Uses a 30-minute Ollama model keep-alive, concise output limit, and 45-second response timeout. If Groww data is absent, the AI is instructed to return a neutral no-trade analysis.
 
-The default configuration already uses `http://localhost:11434` and `qwen2.5:7b`. To override them for the current terminal session:
-
-```powershell
-$env:OLLAMA_ENABLED = "true"
-$env:OLLAMA_BASE_URL = "http://localhost:11434"
-$env:TRADING_MODEL_NAME = "qwen2.5:7b"
-cd backend
-mvn spring-boot:run
-```
-
-## API checks (cURL)
-
-Check application health:
-
-```powershell
-curl.exe -i http://localhost:8080/api/health
-```
-
-Check AI configuration:
-
-```powershell
-curl.exe -i http://localhost:8080/api/ai/status
-```
-
-Call Spring AI → Ollama through the Java backend (not directly to Ollama):
-
-```powershell
-curl.exe -X POST "http://localhost:8080/api/analyze" `
-  -H "Content-Type: application/json" `
-  -d "{}"
-```
-
-Check the dashboard API:
-
-```powershell
-curl.exe http://localhost:8080/api/dashboard
-```
-
-Ollama itself can be tested directly with cURL:
-
-```powershell
-curl.exe -X POST "http://localhost:11434/api/chat" `
-  -H "Content-Type: application/json" `
-  -d '{"model":"qwen2.5:7b","messages":[{"role":"user","content":"Reply with only READY."}],"stream":false,"options":{"num_predict":20,"temperature":0}}'
-```
-
-## API endpoints
+## Useful endpoints
 
 - `GET /api/health`
-- `GET /api/dashboard`
-- `GET /api/settings` and `PUT /api/settings`
+- `GET /api/groww/status`
+- `GET /api/market/overview`
+- `GET /api/market/option-chain?underlying=NIFTY&expiry=YYYY-MM-DD`
 - `GET /api/ai/status`
-- `POST /api/analyze`
-- `GET /api/trades` and `GET /api/trades/{id}`
-- `POST /api/paper/execute`
-- `POST /api/paper/close/{id}`
-- `POST /api/paper/square-off`
+- `POST /api/analyze` (JSON response) or `POST /api/analyze/stream` (SSE)
+- `GET /api/dashboard`, `GET /api/trades`, `GET /api/settings`
+- `POST /api/paper/execute`, `POST /api/paper/close/{id}`, `POST /api/paper/square-off`
 
-## Configuration
+When Groww credentials are missing, rejected, or not entitled for live data, `/api/market/overview` returns an explicit status and the dashboard shows no prices. It does not substitute demo numbers.
 
-| Environment variable | Default | Purpose |
-|---|---|---|
-| `OLLAMA_ENABLED` | `true` | Enable Spring AI Ollama analysis |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Local Ollama API |
-| `TRADING_MODEL_NAME` | `qwen2.5:7b` | Installed Ollama model name |
+## Ollama latency
 
-## Paper-trading defaults
+A short local `qwen2.5:7b` request measured during this implementation took about 12.2 seconds cold and 3.3 seconds to first content when warm. That is one local measurement, not a performance guarantee. The app keeps the model loaded between requests and records first-content/total time so you can compare real analysis calls on your machine. Virtual threads increase request concurrency, not model token speed; GPU memory, model loading, context size, and output length drive inference latency.
 
-- Capital limit: ₹10,000, editable from dashboard
-- Maximum 5 entry orders per day; paper exits do not count as entries
-- Stop new entries after 3 completed profitable trades
-- Entry window: 09:15–14:58 IST on weekdays; this demo does not use the official NSE holiday calendar
-- Square-off starts at 14:57 IST; the button closes simulated paper positions only
-- AI must never authorize orders; `tradeAuthorized` is always false in analysis output
+## Static IP and live orders
 
-## Troubleshooting
-
-**`ollama list` does not show `qwen2.5:7b`:** Set `TRADING_MODEL_NAME` to the exact installed model name or download the model separately.
-
-**Ollama works directly but `/api/analyze` falls back:** Confirm Ollama is running, `OLLAMA_BASE_URL` points to the host from the Java process, and inspect the Spring Boot console for dependency/network errors. If running the Java app directly on Windows, use `http://localhost:11434`. In Docker, the compose file uses `http://host.docker.internal:11434`.
-
-**Maven dependency resolution fails:** Verify internet access and that `backend/pom.xml` imported the Spring AI BOM version used by the project. Share the first Maven error rather than changing versions randomly.
-
-## Verification status
-
-This ZIP was prepared from source, but it was **not compiled or integration-tested in this build environment** because Maven is unavailable here. Run `mvn clean package` on your Windows machine first. The Spring AI/Ollama call will be confirmed when `POST /api/analyze` returns mode `SPRING_AI_OLLAMA`; if Ollama cannot be reached, the endpoint intentionally returns `RULE_BASED_FALLBACK`.
-
-Before any live use, add durable Oracle persistence, real licensed market data, validated backtesting with fees/slippage, exchange-calendar handling, order reconciliation, security controls, and a separately reviewed broker integration. Live order placement is not included.
+Groww states that API orders must originate from a registered static IP. Since your static IP is not ready yet, order placement is not implemented or enabled. After the IP is registered, this project still requires a separate safety review before any broker order path is added. Read-only data and paper mode can be evaluated independently.

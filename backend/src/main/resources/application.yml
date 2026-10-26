@@ -1,4 +1,3 @@
-
 spring:
   application:
     name: groww-ai-options-trader
@@ -36,19 +35,30 @@ spring:
         options:
           model: ${TRADING_MODEL_NAME:qwen2.5:7b}
           temperature: 0.0
-          num-predict: 180
+          num-predict: 120
+          keep-alive: 30m
+
+groww:
+  api:
+    enabled: ${GROWW_API_ENABLED:false}
+    base-url: ${GROWW_API_BASE_URL:https://api.groww.in}
+    api-key: ${GROWW_API_KEY:}
+    api-secret: ${GROWW_API_SECRET:}
+    access-token: ${GROWW_ACCESS_TOKEN:}
+    poll-interval: ${GROWW_POLL_INTERVAL:1000}
+
+trading:
+  ai:
+    enabled: ${OLLAMA_ENABLED:true}
+    timeout: 45s
+  mode: PAPER
+  live-trading-enabled: false
 
 server:
-  port: 8080
+  port: 1111
 
 management:
   endpoints:
     web:
       exposure:
         include: health,info,metrics
-
-trading:
-  ai:
-    enabled: ${OLLAMA_ENABLED:true}
-  mode: ${TRADING_MODE:PAPER}
-  live-trading-enabled: ${LIVE_TRADING_ENABLED:false}
