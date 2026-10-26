@@ -40,7 +40,7 @@ spring:
 
 groww:
   api:
-    enabled: ${GROWW_API_ENABLED:false}
+    enabled: ${GROWW_API_ENABLED:true}
     base-url: ${GROWW_API_BASE_URL:https://api.groww.in}
     api-key: ${GROWW_API_KEY:}
     api-secret: ${GROWW_API_SECRET:}

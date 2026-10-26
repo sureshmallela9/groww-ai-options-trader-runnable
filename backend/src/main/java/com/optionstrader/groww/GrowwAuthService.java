@@ -10,16 +10,22 @@ import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.HexFormat;
 import java.util.Map;
+import java.util.LinkedHashMap;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.client.RestClient;
 
 @Service
 public class GrowwAuthService {
     private static final ZoneId INDIA = ZoneId.of("Asia/Kolkata");
+    private static final Logger LOGGER = LoggerFactory.getLogger(GrowwAuthService.class);
     private final RestClient client;
     private final GrowwApiProperties properties;
     private volatile CachedToken cachedToken;
+    private volatile String lastAuthenticationError;
 
     public GrowwAuthService(@Qualifier("growwRestClient") RestClient client, GrowwApiProperties properties) {
         this.client = client;
@@ -63,14 +69,33 @@ public class GrowwAuthService {
         return token;
     }
 
+    @Scheduled(fixedDelay = 60000, initialDelay = 1000)
+    public void keepTokenReady() {
+        if (!properties.isEnabled() || !properties.hasCredentials() || !properties.getAccessToken().isBlank()) return;
+        try {
+            accessToken();
+            lastAuthenticationError = null;
+        } catch (Exception e) {
+            lastAuthenticationError = e.getClass().getSimpleName();
+            // Never log credentials, checksums, or token values.
+            LOGGER.warn("Groww access token is not ready ({}). Check daily API approval and configuration.", lastAuthenticationError);
+        }
+    }
+
     public Map<String, Object> status() {
         boolean configured = properties.isEnabled() && properties.hasCredentials();
-        return Map.of(
-            "enabled", properties.isEnabled(),
-            "credentialsConfigured", properties.hasCredentials(),
-            "state", !properties.isEnabled() ? "DISABLED" : configured ? "CONFIGURED" : "WAITING_FOR_CREDENTIALS",
-            "authentication", properties.getAccessToken().isBlank() ? "API_KEY_DAILY_APPROVAL" : "ACCESS_TOKEN"
-        );
+        CachedToken token = cachedToken;
+        boolean directToken = !properties.getAccessToken().isBlank();
+        boolean tokenReady = directToken || (token != null && token.expiresAt().isAfter(Instant.now()));
+        Map<String, Object> status = new LinkedHashMap<>();
+        status.put("enabled", properties.isEnabled());
+        status.put("credentialsConfigured", properties.hasCredentials());
+        status.put("state", !properties.isEnabled() ? "DISABLED" : configured ? "CONFIGURED" : "WAITING_FOR_CREDENTIALS");
+        status.put("authentication", directToken ? "ACCESS_TOKEN" : "API_KEY_DAILY_APPROVAL");
+        status.put("tokenReady", tokenReady);
+        status.put("tokenExpiresAt", directToken || token == null ? null : token.expiresAt().toString());
+        status.put("lastAuthenticationError", lastAuthenticationError);
+        return status;
     }
 
     private String checksum(String secret, String timestamp) {
