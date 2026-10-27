@@ -17,9 +17,22 @@ public class GrowwConfiguration {
             .connectTimeout(Duration.ofSeconds(2))
             .build();
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
-        requestFactory.setReadTimeout(Duration.ofSeconds(3));
+        requestFactory.setReadTimeout(Duration.ofSeconds(10));
         return RestClient.builder()
             .baseUrl(properties.getBaseUrl())
+            .requestFactory(requestFactory)
+            .build();
+    }
+
+    @Bean
+    RestClient growwInstrumentsRestClient() {
+        HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(3))
+            .build();
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
+        requestFactory.setReadTimeout(Duration.ofSeconds(20));
+        return RestClient.builder()
+            .baseUrl("https://growwapi-assets.groww.in")
             .requestFactory(requestFactory)
             .build();
     }

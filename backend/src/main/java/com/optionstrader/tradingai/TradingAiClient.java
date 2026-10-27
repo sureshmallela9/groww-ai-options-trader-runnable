@@ -1,0 +1,80 @@
+package com.optionstrader.tradingai;
+
+import java.util.Map;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
+
+@Service
+public class TradingAiClient {
+    private static final ParameterizedTypeReference<Map<String, Object>> MAP_TYPE = new ParameterizedTypeReference<>() {};
+
+    private final RestClient restClient;
+    private final String baseUrl;
+    private final boolean enabled;
+
+    public TradingAiClient(
+            @Qualifier("tradingAiRestClient") RestClient restClient,
+            @Value("${trading.ai.analysis-url:http://127.0.0.1:8000}") String baseUrl,
+            @Value("${trading.ai.enabled:true}") boolean enabled) {
+        this.restClient = restClient;
+        this.baseUrl = baseUrl;
+        this.enabled = enabled;
+    }
+
+    public Map<String, Object> analyze(Map<String, Object> payload) {
+        requireEnabled();
+        Map<String, Object> response = restClient.post()
+            .uri("/analyze")
+            .contentType(MediaType.APPLICATION_JSON)
+            .accept(MediaType.APPLICATION_JSON)
+            .body(payload)
+            .retrieve()
+            .body(MAP_TYPE);
+        return response == null ? Map.of() : response;
+    }
+
+    public Object health() {
+        requireEnabled();
+        return restClient.get()
+            .uri("/health")
+            .accept(MediaType.APPLICATION_JSON)
+            .retrieve()
+            .body(Object.class);
+    }
+
+    public Object reports() {
+        requireEnabled();
+        return restClient.get()
+            .uri(uriBuilder -> uriBuilder.path("/reports").queryParam("kind", "analysis").build())
+            .accept(MediaType.APPLICATION_JSON)
+            .retrieve()
+            .body(Object.class);
+    }
+
+    public Object report(long reportId) {
+        requireEnabled();
+        return restClient.get()
+            .uri("/reports/{report_id}", reportId)
+            .accept(MediaType.APPLICATION_JSON)
+            .retrieve()
+            .body(Object.class);
+    }
+
+    public String baseUrl() {
+        return baseUrl;
+    }
+
+    public boolean enabled() {
+        return enabled;
+    }
+
+    private void requireEnabled() {
+        if (!enabled) {
+            throw new IllegalStateException("Trading AI integration is disabled.");
+        }
+    }
+}

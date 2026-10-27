@@ -28,16 +28,6 @@ spring:
     schemas: GROWW_TRADER
     default-schema: GROWW_TRADER
 
-  ai:
-    ollama:
-      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
-      chat:
-        options:
-          model: ${TRADING_MODEL_NAME:qwen2.5:7b}
-          temperature: 0.0
-          num-predict: 120
-          keep-alive: 30m
-
 groww:
   api:
     enabled: ${GROWW_API_ENABLED:true}
@@ -49,8 +39,9 @@ groww:
 
 trading:
   ai:
-    enabled: ${OLLAMA_ENABLED:true}
-    timeout: 45s
+    enabled: ${TRADING_AI_ENABLED:true}
+    analysis-url: ${TRADING_AI_ANALYSIS_URL:http://127.0.0.1:8000}
+    timeout: ${TRADING_AI_TIMEOUT:20s}
   mode: PAPER
   live-trading-enabled: false
 
