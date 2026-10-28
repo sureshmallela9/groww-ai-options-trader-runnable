@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Paper research workspace</title>
+<style>
+:root{color-scheme:dark;font:15px/1.5 system-ui;background:#0d151d;color:#eef4f7}body{max-width:1180px;margin:auto;padding:24px}a{color:#91c9ff}h1{margin:5px 0}h2{font-size:19px}.muted{color:#acbdca}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{background:#15232d;border:1px solid #304553;border-radius:14px;padding:20px;margin:16px 0}input,textarea,select,button{font:inherit;padding:10px;border-radius:8px;border:1px solid #486071;color:inherit;background:#10202b}input,textarea{box-sizing:border-box;width:100%;margin:5px 0 12px}button{cursor:pointer;background:#23443d}button.danger{background:#6a2933}button:disabled{opacity:.5;cursor:wait}label{display:block;font-weight:600}label.check{font-weight:400}label.check input{width:auto}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.row>*{flex:1;min-width:120px}.row button{flex:0 1 auto}textarea{min-height:130px;font:13px Consolas,monospace}pre{white-space:pre-wrap;overflow-wrap:anywhere;color:#c6dce8;font-size:13px}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:9px;border-bottom:1px solid #304553}.table{overflow:auto}.notice{padding:12px;background:#243547;border-radius:9px}.error{color:#ffabb5}.good{color:#5be0b1}@media(max-width:800px){.grid{grid-template-columns:1fr}body{padding:14px}}
+</style></head><body>
+<a href="/">← Options dashboard</a><h1>Paper research workspace</h1>
+<p class="muted">Research NSE cash equities, inspect the evidence, and test a paper proposal. Automatic entries are off. Positions use simulated fills and are monitored by the local risk engine.</p>
+<div class="card"><label for="token">Connection token</label><div class="row"><input id="token" type="password" autocomplete="off" placeholder="Shared internal API token"><button id="connect">Connect</button><button id="refresh">Refresh status</button></div><p id="connection" class="muted">Enter the shared token to connect to both applications. It stays in memory for this page.</p></div>
+<p id="message" class="notice" role="status">Start both applications, then connect.</p>
+<div class="grid">
+<section class="card"><h2>1. Market context</h2><p class="muted">Use completed NIFTY and sector candles plus current market breadth. Missing confirmation produces no trade.</p>
+<label for="sector">Sector index symbol</label><input id="sector" placeholder="Broker trading symbol, e.g. BANKNIFTY">
+<div class="row"><div><label for="advancers">Advancing stocks</label><input id="advancers" type="number" min="0"></div><div><label for="decliners">Declining stocks</label><input id="decliners" type="number" min="0"></div></div>
+<label class="check"><input id="eventRisk" type="checkbox">Important scheduled event risk</label>
+<button id="market">Load and assess market</button><p id="marketResult" class="muted">Market context has not been loaded.</p>
+</section>
+<section class="card"><h2>2. Find and assess a stock</h2><div class="row"><button id="universe">Refresh NIFTY 50 list</button><button id="loadUniverse">Load saved list</button></div>
+<label for="symbol">Stock</label><select id="symbol"><option value="">Load the maintained list first</option></select>
+<div class="row" style="margin-top:12px"><button id="scan">Scan universe</button><button id="evaluate">Evaluate selected stock</button></div>
+<p id="scanResult" class="muted">Scores describe the configured rules; they are not probabilities of a price move.</p>
+<div id="decision"></div>
+</section></div>
+<div class="grid"><section class="card"><h2>3. Review a paper proposal</h2><p id="proposal" class="muted">A valid BUY proposal is required. The Java risk engine will check it again using a fresh quote.</p>
+<label class="check"><input id="confirm" type="checkbox">I want to create this simulated paper position</label><button id="submit" disabled>Create paper intent</button>
+<details><summary>Decision evidence</summary><pre id="decisionDetails">No decision yet.</pre></details>
+</section><section class="card"><h2>Risk controls</h2><div id="riskStatus" class="muted">Not connected.</div><button id="kill" class="danger">Activate kill switch and request paper exits</button>
+<p class="muted">A pending exit stays unresolved until a fresh executable quote is available. Risk exits do not wait for Trading AI.</p>
+<details><summary>Administrator settings</summary><label for="admin">Separate administrator token</label><input id="admin" type="password" autocomplete="off"><textarea id="policy" aria-label="Risk policy JSON"></textarea><div class="row"><button id="savePolicy">Save policy</button><button id="resetKill">Reset kill switch</button></div></details>
+</section></div>
+<section class="card"><h2>Paper positions and intent history</h2><div class="table"><table><thead><tr><th>Symbol</th><th>State</th><th>Quantity</th><th>P&amp;L</th><th>Actions</th></tr></thead><tbody id="positions"></tbody></table></div><details><summary>Recorded lifecycle and evidence</summary><pre id="intentDetails">Choose a record to see its timeline, risk checks, quote and decision.</pre></details></section>
+<section class="card"><h2>News evidence</h2><p class="muted">Use your permitted feed or submit sourced headlines. Sentiment is a keyword interpretation and can be wrong. It cannot authorize an entry.</p>
+<textarea id="news" aria-label="News JSON" placeholder='{"articles":[{"headline":"Your sourced headline","source":"your-source","publishedAt":"ISO time with timezone","relatedSymbols":[]}]}'></textarea><div class="row"><button id="newsAnalyze">Analyze submitted news</button><button id="newsCollect">Collect configured permitted feeds</button></div><pre id="newsResult"></pre></section>
+<script src="/paper-workspace.js"></script></body></html>

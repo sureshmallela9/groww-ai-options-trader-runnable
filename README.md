@@ -6,22 +6,30 @@ Java 21 / Spring Boot application that reads Groww market data when configured a
 
 - **Real market data:** Read-only Groww data polling is enabled by default when credentials are configured. NIFTY and BANKNIFTY quotes are polled once per second; a compact NIFTY option-chain snapshot is refreshed about every 30 seconds.
 - **Paper execution:** Entries and exits remain synthetic. The application does not submit, modify, cancel, or track Groww orders. It always reports mode PAPER and liveExecutionEnabled false.
-- **Analysis:** The dashboard can fetch completed historical candles through Groww and send normalized OHLCV bars plus the original Groww response to your local Trading AI API at TRADING_AI_ANALYSIS_URL (default http://127.0.0.1:8000). Analysis never authorizes or triggers a trade.
+- **Analysis and backtesting:** Full-history analysis sends validated Groww candles to your local Trading AI API at TRADING_AI_ANALYSIS_URL (default http://127.0.0.1:8000). The separate paper-backtest flow uses the AI trend to simulate one entry and exit on later candles. It never submits a Groww order.
 
 See [Architecture and API Guide](docs/ARCHITECTURE_AND_API.md) for the component diagram, API contracts, sample requests/responses, and run instructions.
 
 ## Historical candles and AI analysis
 
-The app fetches real historical candles from Groww on demand for the backtesting workflow. Groww data is passed to Trading AI as normalized completed OHLCV bars and the original response envelope (including FNO open interest where returned). The AI service must accept the optional top-level market_data object. This workflow analyzes historical data; it does not simulate fills or compute strategy backtest P&L.
+The app fetches real historical candles from Groww on demand. Full-history analysis sends normalized completed OHLCV bars and the original response envelope (including FNO open interest where returned). The backtest sends the first 50 bars to AI for a trend, then replays later bars with a 1 ATR stop and 2 ATR target. Its one-unit fills and fixed fee are illustrative; F&O lot size, taxes, slippage, and market impact are excluded. The AI service must accept the optional top-level market_data object.
 
 See [Groww backtesting and AI request contract](docs/GROWW_BACKTESTING_AI_CONTRACT.md) for the exact request bodies, API routes, date-range caps, and PowerShell example.
+
+## Initial NSE cash paper workspace
+
+Open http://localhost:1111/paper-workspace.html after configuring the shared internal token, separate administrator token and verified session calendar. See [PAPER_PLATFORM_API.md](docs/PAPER_PLATFORM_API.md) and [MASTER_PROMPT_REVIEW.md](docs/MASTER_PROMPT_REVIEW.md). The new workspace uses independent persistent risk gates; legacy demo/backtest screens remain research experiments.
+
+## Connect both projects
+
+See [TWO_APP_SETUP.md](docs/TWO_APP_SETUP.md) for the Trading AI 0.5.0 contract, run settings, provider provenance and isolated verification. Restart both apps after updating.
 
 ## Requirements
 
 - JDK 21 and Maven 3.9+
 - Oracle schema/user and database access for Flyway
 - Your Trading AI API running locally, with GET /health, POST /analyze, report endpoints, and support for the optional market_data object described in the integration contract
-- Groww API credentials and historical-data entitlement for the on-demand analysis workflow.
+- Groww API credentials and historical-data entitlement for on-demand analysis and backtesting.
 
 Use the Groww API secret, not the Groww account login password. Groww API-key authentication may require daily approval; access tokens expire daily. Read [Groww authentication and rate limits](https://groww.in/trade-api/docs/curl) and [Groww live-data docs](https://groww.in/trade-api/docs/curl/live-data).
 
@@ -45,10 +53,10 @@ Open http://localhost:1111. Oracle migrations create `GROWW_TRADER.TRADING_SETTI
 
 ## Analysis API
 
-POST http://localhost:1111/api/analyze accepts caller-supplied candles with 50-5,000 validated bars. The optional market_data object can carry source data such as Groww's original historical response. POST /api/backtesting/analyze fetches Groww candles and sends normalized OHLCV bars plus the original response envelope to AI. The Trading AI API must accept market_data as documented in the integration contract.
+POST http://localhost:1111/api/analyze accepts caller-supplied candles with 50-5,000 validated bars. POST /api/backtesting/analyze fetches Groww candles and sends the full normalized history plus original response to AI. POST /api/backtesting/run gets a trend from the first 50 bars, then creates a paper-only replay record from later candles. The Trading AI API must accept market_data as documented in the integration contract.
 
 The UI uses POST /api/analyze/stream for caller-supplied requests. GET /api/ai/status checks API health, while GET /api/ai/reports?kind=analysis and GET /api/ai/reports/{report_id} proxy saved reports.
 
 ## Safety and limitations
 
-Groww market data is read-only. Groww order endpoints are not implemented. Paper entries and exits remain synthetic. Groww history is used for analysis only and is not an order or a simulated backtest fill. The application always returns tradeAuthorized=false.
+Groww market data is read-only and Groww order endpoints are not implemented. Backtest fills are simulated paper records only; they never authorize or submit broker orders. The application always returns tradeAuthorized=false.

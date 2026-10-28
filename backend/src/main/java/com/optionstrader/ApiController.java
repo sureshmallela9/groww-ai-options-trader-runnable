@@ -24,15 +24,17 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class ApiController {
     private final TradingService trading;
     private final AnalysisService analysis;
+    private final BacktestingService backtesting;
     private final GrowwAuthService growwAuth;
     private final GrowwMarketDataService marketData;
     private final ObjectMapper objectMapper;
 
-    public ApiController(TradingService trading, AnalysisService analysis,
+    public ApiController(TradingService trading, AnalysisService analysis, BacktestingService backtesting,
                          GrowwAuthService growwAuth, GrowwMarketDataService marketData,
                          ObjectMapper objectMapper) {
         this.trading = trading;
         this.analysis = analysis;
+        this.backtesting = backtesting;
         this.growwAuth = growwAuth;
         this.marketData = marketData;
         this.objectMapper = objectMapper;
@@ -186,6 +188,11 @@ public class ApiController {
         return result;
     }
 
+    @PostMapping("/backtesting/run")
+    public Map<String, Object> backtestingRun(@RequestBody(required = false) JsonNode body) {
+        return backtesting.run(body);
+    }
+
     @GetMapping("/trades")
     public List<Map<String, Object>> trades() { return trading.all(); }
 
@@ -218,6 +225,12 @@ public class ApiController {
             if (retryAfter != null) body.put("retryAfter", retryAfter);
         }
         return ResponseEntity.status(responseStatus).body(body);
+    }
+
+    @ExceptionHandler(com.optionstrader.groww.GrowwReadBudget.LimitExceeded.class)
+    public ResponseEntity<Map<String,Object>> localBrokerBudget(com.optionstrader.groww.GrowwReadBudget.LimitExceeded limit) {
+        return ResponseEntity.status(429).header("Retry-After",Integer.toString(limit.retryAfter()))
+            .body(Map.of("error",limit.getMessage(),"retryAfter",limit.retryAfter()));
     }
 
     @ExceptionHandler(ResourceAccessException.class)

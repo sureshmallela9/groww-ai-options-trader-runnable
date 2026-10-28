@@ -86,6 +86,7 @@ class AnalysisServiceTradingAiTest {
 
         var response = service.analyze(request(50));
         assertThat(response).containsEntry("status", "INVALID_CANDLES");
+        assertThat(response).containsEntry("detail", "bad candle");
         assertThat(response).containsEntry("tradeAuthorized", false);
     }
 
@@ -148,6 +149,8 @@ class AnalysisServiceTradingAiTest {
             .andRespond(withSuccess("""
                 {
                   "status":"ok",
+                  "api_version":"0.5.0",
+                  "capabilities":{"market_data_context":true},
                   "knowledge":{"index_ready":true,"chunk_count":8},
                   "report_storage":{"backend":"sqlite","connected":true},
                   "analysis_workers":{"workers":4,"ready_workers":4,"in_flight_limit":8}
@@ -179,6 +182,26 @@ class AnalysisServiceTradingAiTest {
         assertThatThrownBy(() -> service.report(999))
             .isInstanceOf(NoSuchElementException.class)
             .hasMessageContaining("was not found");
+    }
+
+
+    @Test
+    void detectsTheOldApiContract() {
+        setupClient();
+        server.expect(requestTo(BASE_URL + "/health")).andRespond(withSuccess(
+            "{\"status\":\"ok\",\"report_storage\":{\"connected\":true}}", MediaType.APPLICATION_JSON));
+        assertThat(service.status()).containsEntry("connected", true)
+            .containsEntry("ready", false).containsEntry("state", "API_UPDATE_REQUIRED");
+    }
+
+    @Test
+    void reportsDisconnectedStorageAsNotReady() {
+        setupClient();
+        server.expect(requestTo(BASE_URL + "/health")).andRespond(withSuccess("""
+            {"status":"ok","capabilities":{"market_data_context":true},"report_storage":{"connected":false}}
+            """, MediaType.APPLICATION_JSON));
+        assertThat(service.status()).containsEntry("connected", true)
+            .containsEntry("ready", false).containsEntry("state", "NOT_READY");
     }
 
     private void setupClient() {

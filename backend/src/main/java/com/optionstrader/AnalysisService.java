@@ -1,6 +1,9 @@
 package com.optionstrader;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
+import java.util.List;
 import com.optionstrader.tradingai.AnalysisRequestMapper;
 import com.optionstrader.tradingai.TradingAiClient;
 import java.io.IOException;
@@ -25,6 +28,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Service
 public class AnalysisService {
+    private static final ObjectMapper ERROR_JSON = new ObjectMapper();
     private static final Duration DEFAULT_RETRY_DELAY = Duration.ofSeconds(2);
     private static final Duration MAX_AUTOMATIC_RETRY_DELAY = Duration.ofSeconds(5);
 
@@ -172,6 +176,7 @@ public class AnalysisService {
         status.put("lastTotalLatencyMs", lastLatencyMs.get() < 0 ? null : lastLatencyMs.get());
         status.put("lastCompletedAt", lastCompletedAt == null ? null : lastCompletedAt.toString());
         status.put("readyForLiveTrading", false);
+        status.put("marketDataSupported", false);
         status.put("maxInFlightAnalyses", maxInFlightAnalyses);
 
         if (!enabled || !tradingAi.enabled()) {
@@ -183,11 +188,20 @@ public class AnalysisService {
         }
         try {
             Object health = tradingAi.health();
+            boolean supportsContext = supportsMarketData(health);
+            boolean healthy = healthReady(health);
             status.put("connected", true);
-            status.put("ready", healthReady(health));
+            status.put("ready", healthy && supportsContext);
+            status.put("marketDataSupported", supportsContext);
             status.put("health", health);
-            status.put("state", healthReady(health) ? "READY" : "NOT_READY");
+            status.put("state", !supportsContext ? "API_UPDATE_REQUIRED" : healthy ? "READY" : "NOT_READY");
+            if (!supportsContext) {
+                status.put("error", "Restart the updated Trading AI API (0.5.0+) to accept Groww market_data.");
+            } else if (!healthy) {
+                status.put("error", "Trading AI is reachable, but its service or report storage is not ready.");
+            }
             if (health instanceof Map<?, ?> values) {
+                status.put("apiVersion", values.get("api_version"));
                 status.put("knowledge", values.get("knowledge"));
                 status.put("reportStorage", values.get("report_storage"));
                 status.put("analysisWorkers", values.get("analysis_workers"));
@@ -202,13 +216,19 @@ public class AnalysisService {
         return status;
     }
 
+    private boolean supportsMarketData(Object health) {
+        return health instanceof Map<?, ?> values
+            && values.get("capabilities") instanceof Map<?, ?> capabilities
+            && Boolean.TRUE.equals(capabilities.get("market_data_context"));
+    }
+
     private boolean healthReady(Object health) {
-        if (health instanceof Map<?, ?> values && values.get("status") != null) {
-            String state = values.get("status").toString().trim().toLowerCase(Locale.ROOT);
-            return state.equals("ok") || state.equals("ready") || state.equals("healthy")
-                || state.equals("up") || state.equals("success");
-        }
-        return true;
+        if (!(health instanceof Map<?, ?> values) || values.get("status") == null) return false;
+        String state = values.get("status").toString().trim().toLowerCase(Locale.ROOT);
+        boolean up = state.equals("ok") || state.equals("ready") || state.equals("healthy")
+            || state.equals("up") || state.equals("success");
+        return up && values.get("report_storage") instanceof Map<?, ?> storage
+            && Boolean.TRUE.equals(storage.get("connected"));
     }
 
     public Object reports() {
@@ -285,11 +305,38 @@ public class AnalysisService {
                     "Trading AI returned HTTP " + statusCode + ".",
             elapsed);
         response.put("status", statusCode == 422 ? "INVALID_CANDLES" : statusCode == 503 ? "BUSY" : "UPSTREAM_ERROR");
+        if (statusCode == 422) {
+            String detail = validationDetail(e);
+            if (detail != null) {
+                response.put("detail", detail);
+                response.put("analysis", response.get("analysis") + " " + detail);
+            }
+        }
         if (statusCode == 503) {
             String retryAfter = e.getResponseHeaders() == null ? null : e.getResponseHeaders().getFirst(HttpHeaders.RETRY_AFTER);
             if (retryAfter != null) response.put("retryAfter", retryAfter);
         }
         return response;
+    }
+
+    private String validationDetail(RestClientResponseException exception) {
+        try {
+            JsonNode detail = ERROR_JSON.readTree(exception.getResponseBodyAsString()).path("detail");
+            if (detail.isTextual()) return detail.asText().substring(0, Math.min(2000, detail.asText().length()));
+            if (detail.isArray()) {
+                List<String> messages = new ArrayList<>();
+                for (JsonNode error : detail) {
+                    if (messages.size() >= 5) break;
+                    List<String> location = new ArrayList<>();
+                    error.path("loc").forEach(part -> location.add(part.asText()));
+                    messages.add(String.join(".", location) + ": " + error.path("msg").asText("Invalid value"));
+                }
+                return String.join("; ", messages);
+            }
+        } catch (Exception ignored) {
+            // Never expose an unparsed upstream response or credentials.
+        }
+        return null;
     }
 
     private Object reportError(RestClientResponseException e) {

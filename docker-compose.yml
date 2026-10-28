@@ -2,23 +2,32 @@ services:
   options-trader:
     build: .
     ports:
-      - "1111:1111"
+      - "127.0.0.1:1111:1111"
     environment:
       SERVER_PORT: "1111"
+      TRADING_HOST: "0.0.0.0"
+      SPRING_PROFILES_ACTIVE: "${SPRING_PROFILES_ACTIVE:-}"
+      TRADING_SESSION_CALENDAR: "/app/config/session-calendar.json"
       DB_URL: "${DB_URL:-jdbc:oracle:thin:@//host.docker.internal:1521/XEPDB1}"
       DB_USERNAME: "${DB_USERNAME:-GROWW_TRADER}"
       DB_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD in the local .env file}"
       TRADING_AI_ENABLED: "${TRADING_AI_ENABLED:-true}"
       TRADING_AI_ANALYSIS_URL: "${TRADING_AI_ANALYSIS_URL:-http://host.docker.internal:8000}"
       TRADING_AI_TIMEOUT: "${TRADING_AI_TIMEOUT:-20s}"
+      TRADING_AI_MAX_IN_FLIGHT: "${TRADING_AI_MAX_IN_FLIGHT:-12}"
+      PAPER_BACKTEST_CHARGES: "${PAPER_BACKTEST_CHARGES:-5.00}"
       GROWW_API_ENABLED: "${GROWW_API_ENABLED:-true}"
       GROWW_API_BASE_URL: "${GROWW_API_BASE_URL:-https://api.groww.in}"
       GROWW_API_KEY: "${GROWW_API_KEY:-}"
       GROWW_API_SECRET: "${GROWW_API_SECRET:-}"
       GROWW_ACCESS_TOKEN: "${GROWW_ACCESS_TOKEN:-}"
       GROWW_POLL_INTERVAL: "${GROWW_POLL_INTERVAL:-1000}"
+      INTERNAL_API_TOKEN: "${INTERNAL_API_TOKEN:-}"
+      TRADING_ADMIN_TOKEN: "${TRADING_ADMIN_TOKEN:-}"
       TRADING_MODE: "PAPER"
       LIVE_TRADING_ENABLED: "false"
+    volumes:
+      - ./config:/app/config:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

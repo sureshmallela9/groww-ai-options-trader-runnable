@@ -1,0 +1,18 @@
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/groww_trader}
+    username: ${DB_USERNAME:groww_trader}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-init-sql: SET search_path TO groww_trader
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        default_schema: groww_trader
+  flyway:
+    locations: classpath:db/postgresql
+    schemas: groww_trader
+    default-schema: groww_trader

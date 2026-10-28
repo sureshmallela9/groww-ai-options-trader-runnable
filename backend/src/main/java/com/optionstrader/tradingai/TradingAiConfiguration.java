@@ -13,10 +13,13 @@ public class TradingAiConfiguration {
     public RestClient tradingAiRestClient(
             RestClient.Builder builder,
             @Value("${trading.ai.analysis-url:http://127.0.0.1:8000}") String baseUrl,
-            @Value("${trading.ai.timeout:20s}") Duration timeout) {
+            @Value("${trading.ai.timeout:20s}") Duration timeout,
+            @Value("${trading.internal-token:}") String token) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(timeout);
         requestFactory.setReadTimeout(timeout);
-        return builder.baseUrl(baseUrl).requestFactory(requestFactory).build();
+        builder.baseUrl(baseUrl).requestFactory(requestFactory);
+        if(!token.isBlank())builder.defaultHeader("Authorization","Bearer "+token);
+        return builder.build();
     }
 }

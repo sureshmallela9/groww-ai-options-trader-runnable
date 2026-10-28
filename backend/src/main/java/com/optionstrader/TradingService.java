@@ -132,6 +132,55 @@ public class TradingService {
     }
 
     @Transactional
+    public Map<String, Object> recordBacktestTrade(String symbol, String side, int quantity,
+                                                    BigDecimal entryPrice, BigDecimal exitPrice,
+                                                    OffsetDateTime entryTime, OffsetDateTime exitTime,
+                                                    BigDecimal charges, String entryReason,
+                                                    String exitReason, List<String> evidence) {
+        if (symbol == null || symbol.isBlank() || symbol.length() > 64) {
+            throw new IllegalArgumentException("Backtest symbol must contain 1-64 characters.");
+        }
+        if (!"LONG".equals(side) && !"SHORT".equals(side)) {
+            throw new IllegalArgumentException("Backtest side must be LONG or SHORT.");
+        }
+        if (quantity < 1 || entryPrice == null || exitPrice == null || entryPrice.signum() <= 0
+                || exitPrice.signum() <= 0 || entryTime == null || exitTime == null
+                || !exitTime.isAfter(entryTime)) {
+            throw new IllegalArgumentException("Backtest fill prices, quantity, and chronological timestamps are invalid.");
+        }
+        BigDecimal safeCharges = charges == null ? BigDecimal.ZERO : charges.max(BigDecimal.ZERO);
+        BigDecimal direction = "LONG".equals(side) ? BigDecimal.ONE : BigDecimal.ONE.negate();
+        BigDecimal gross = exitPrice.subtract(entryPrice)
+            .multiply(BigDecimal.valueOf(quantity)).multiply(direction).setScale(2, RoundingMode.HALF_UP);
+
+        OffsetDateTime createdAt = OffsetDateTime.now(zone);
+        PaperTradeEntity trade = new PaperTradeEntity();
+        trade.setId("BACKTEST-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT));
+        trade.setSymbol(symbol);
+        trade.setOptionType(side);
+        trade.setQuantity(quantity);
+        trade.setEntryPremium(entryPrice.setScale(2, RoundingMode.HALF_UP));
+        trade.setExitPremium(exitPrice.setScale(2, RoundingMode.HALF_UP));
+        trade.setGrossPnl(gross);
+        trade.setCharges(safeCharges.setScale(2, RoundingMode.HALF_UP));
+        trade.setNetPnl(gross.subtract(safeCharges).setScale(2, RoundingMode.HALF_UP));
+        trade.setStatus("CLOSED");
+        trade.setEntryReason(entryReason);
+        trade.setExitReason(exitReason);
+        trade.setEntryTime(entryTime);
+        trade.setExitTime(exitTime);
+        List<String> storedEvidence = new ArrayList<>();
+        storedEvidence.add("BACKTEST");
+        if (evidence != null) storedEvidence.addAll(evidence.stream().filter(value -> value != null && !value.isBlank()).toList());
+        trade.setEvidenceJson(writeJson(storedEvidence));
+        trade.setTimelineJson(writeJson(List.of(
+            entryTime + " — historical paper entry simulated; no Groww order sent",
+            exitTime + " — historical paper exit simulated: " + exitReason,
+            createdAt + " — backtest result saved to the paper journal")));
+        return toMap(trades.save(trade));
+    }
+
+    @Transactional
     public Map<String, Object> close(String id) {
         PaperTradeEntity trade = trades.findById(id).orElseThrow(() -> new NoSuchElementException("Trade not found"));
         if (!"OPEN".equals(trade.getStatus())) throw new IllegalStateException("Trade already closed.");
@@ -179,7 +228,14 @@ public class TradingService {
 
     private List<PaperTradeEntity> todayTrades() {
         LocalDate today = LocalDate.now(zone);
-        return trades.findAll().stream().filter(t -> t.getEntryTime().atZoneSameInstant(zone).toLocalDate().equals(today)).toList();
+        return trades.findAll().stream()
+            .filter(t -> !isBacktest(t))
+            .filter(t -> t.getEntryTime().atZoneSameInstant(zone).toLocalDate().equals(today))
+            .toList();
+    }
+
+    private boolean isBacktest(PaperTradeEntity trade) {
+        return readStringList(trade.getEvidenceJson()).contains("BACKTEST");
     }
 
     private Map<String, Object> settingsMap(TradingSettingsEntity s) {
@@ -194,6 +250,8 @@ public class TradingService {
         result.put("id", t.getId());
         result.put("symbol", t.getSymbol());
         result.put("optionType", t.getOptionType());
+        result.put("side", t.getOptionType());
+        result.put("mode", isBacktest(t) ? "BACKTEST" : "PAPER");
         result.put("quantity", t.getQuantity());
         result.put("entryPremium", t.getEntryPremium());
         result.put("exitPremium", t.getExitPremium());

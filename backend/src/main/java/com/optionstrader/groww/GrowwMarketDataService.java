@@ -1,6 +1,8 @@
 package com.optionstrader.groww;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -218,6 +220,29 @@ public class GrowwMarketDataService {
     }
 
     public AnalysisInput buildAnalysisInput(HistoricalRequest request, JsonNode growwEnvelope) {
+        return buildAnalysisInput(request, growwEnvelope, MAX_AI_BARS, false);
+    }
+
+    public BacktestData buildBacktestData(HistoricalRequest request, JsonNode growwEnvelope) {
+        AnalysisInput full = buildAnalysisInput(request, growwEnvelope, MAX_AI_BARS, false);
+        if (full.analysisCandleCount() <= 50) {
+            throw new IllegalArgumentException("A paper backtest needs at least 51 complete candles: 50 for the AI signal and at least one later candle for simulated execution.");
+        }
+
+        AnalysisInput signal = buildAnalysisInput(request, growwEnvelope, 50, true);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> normalizedBars = (List<Map<String, Object>>) full.payload().get("bars");
+        List<HistoricalBar> replayBars = normalizedBars.stream().map(this::toHistoricalBar).toList();
+        return new BacktestData(signal, replayBars);
+    }
+
+    public OffsetDateTime candleCloseTime(OffsetDateTime candleStart, String candleInterval) {
+        LocalDateTime close = candleEnd(candleStart.atZoneSameInstant(INDIA).toLocalDateTime(), candleInterval);
+        return close.atZone(INDIA).toOffsetDateTime();
+    }
+
+    private AnalysisInput buildAnalysisInput(HistoricalRequest request, JsonNode growwEnvelope,
+                                             int maxAnalysisBars, boolean limitSourceResponse) {
         JsonNode candles = growwEnvelope.path("payload").path("candles");
         if (!candles.isArray()) throw new IllegalStateException("Groww historical response did not contain a candles array.");
         if (candles.size() > MAX_AI_BARS) {
@@ -253,7 +278,9 @@ public class GrowwMarketDataService {
                 + " complete, valid candles; Trading AI requires at least 50. Expand the date range or choose a shorter interval.");
         }
 
-        List<Map<String, Object>> bars = new ArrayList<>(sorted.values());
+        List<Map<String, Object>> allBars = new ArrayList<>(sorted.values());
+        List<Map<String, Object>> bars = allBars.size() > maxAnalysisBars
+            ? new ArrayList<>(allBars.subList(0, maxAnalysisBars)) : allBars;
         String interval = aiInterval(request.candleInterval());
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("symbol", request.growwSymbol());
@@ -264,16 +291,67 @@ public class GrowwMarketDataService {
         Map<String, Object> marketData = new LinkedHashMap<>();
         marketData.put("provider", "GROWW");
         marketData.put("endpoint", "/v1/historical/candles");
-        marketData.put("request", Map.of(
-            "exchange", request.exchange(),
-            "segment", request.segment(),
-            "groww_symbol", request.growwSymbol(),
-            "start_time", request.startTime(),
-            "end_time", request.endTime(),
-            "candle_interval", request.candleInterval()));
-        marketData.put("response", growwEnvelope);
+        Map<String, Object> growwRequest = new LinkedHashMap<>();
+        growwRequest.put("exchange", request.exchange());
+        growwRequest.put("segment", request.segment());
+        growwRequest.put("groww_symbol", request.growwSymbol());
+        growwRequest.put("start_time", request.startTime());
+        growwRequest.put("end_time", request.endTime());
+        growwRequest.put("candle_interval", request.candleInterval());
+        JsonNode responseForAi = growwEnvelope;
+        if (limitSourceResponse) {
+            String firstTimestamp = String.valueOf(bars.get(0).get("timestamp"));
+            String cutoffTimestamp = String.valueOf(bars.get(bars.size() - 1).get("timestamp"));
+            String firstGrowwTime = growwTime(firstTimestamp);
+            String cutoffGrowwTime = growwTime(cutoffTimestamp);
+            growwRequest.put("start_time", firstGrowwTime);
+            growwRequest.put("end_time", cutoffGrowwTime);
+            responseForAi = responseThrough(growwEnvelope,
+                OffsetDateTime.parse(firstTimestamp).toLocalDateTime(),
+                OffsetDateTime.parse(cutoffTimestamp).toLocalDateTime(), firstGrowwTime, cutoffGrowwTime,
+                ((Number) bars.get(bars.size() - 1).get("close")).doubleValue());
+        }
+        marketData.put("request", growwRequest);
+        marketData.put("response", responseForAi);
         payload.put("market_data", marketData);
         return new AnalysisInput(payload, candles.size(), bars.size(), interval);
+    }
+
+    private JsonNode responseThrough(JsonNode envelope, LocalDateTime start, LocalDateTime cutoff,
+                                     String startTime, String endTime, double closingPrice) {
+        if (!(envelope.deepCopy() instanceof ObjectNode copy)) return envelope;
+        JsonNode rawPayload = copy.get("payload");
+        if (!(rawPayload instanceof ObjectNode payload)) return copy;
+        JsonNode rawCandles = payload.get("candles");
+        if (!(rawCandles instanceof ArrayNode source)) return copy;
+        ArrayNode filtered = source.arrayNode();
+        for (JsonNode candle : source) {
+            if (candle.isArray() && candle.size() > 0) {
+                LocalDateTime timestamp = candleTime(candle.get(0));
+                if (timestamp != null && !timestamp.isBefore(start) && !timestamp.isAfter(cutoff)) {
+                    filtered.add(candle.deepCopy());
+                }
+            }
+        }
+        payload.set("candles", filtered);
+        payload.put("start_time", startTime);
+        payload.put("end_time", endTime);
+        payload.put("closing_price", closingPrice);
+        return copy;
+    }
+
+    private String growwTime(String isoTimestamp) {
+        return OffsetDateTime.parse(isoTimestamp).toLocalDateTime().format(GROWW_TIME);
+    }
+
+    private HistoricalBar toHistoricalBar(Map<String, Object> bar) {
+        return new HistoricalBar(
+            OffsetDateTime.parse(String.valueOf(bar.get("timestamp"))),
+            ((Number) bar.get("open")).doubleValue(),
+            ((Number) bar.get("high")).doubleValue(),
+            ((Number) bar.get("low")).doubleValue(),
+            ((Number) bar.get("close")).doubleValue(),
+            ((Number) bar.get("volume")).doubleValue());
     }
 
     @Scheduled(fixedDelayString = "${groww.api.option-chain-poll-interval:30000}", initialDelayString = "${groww.api.option-chain-initial-delay:5000}")
@@ -529,6 +607,11 @@ public class GrowwMarketDataService {
 
     public record AnalysisInput(
         Map<String, Object> payload, int sourceCandleCount, int analysisCandleCount, String aiInterval) { }
+
+    public record BacktestData(AnalysisInput signalInput, List<HistoricalBar> replayBars) { }
+
+    public record HistoricalBar(
+        OffsetDateTime timestamp, double open, double high, double low, double close, double volume) { }
 
     private record Strike(BigDecimal price, String key) { }
 }

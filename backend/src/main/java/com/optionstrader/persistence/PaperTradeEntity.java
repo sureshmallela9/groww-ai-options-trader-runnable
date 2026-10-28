@@ -3,7 +3,8 @@ package com.optionstrader.persistence;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -25,8 +26,8 @@ public class PaperTradeEntity {
     @Column(name = "EXIT_REASON", length = 1000) private String exitReason;
     @Column(name = "ENTRY_TIME", nullable = false) private OffsetDateTime entryTime;
     @Column(name = "EXIT_TIME") private OffsetDateTime exitTime;
-    @Lob @Column(name = "EVIDENCE_JSON", nullable = false, columnDefinition = "CLOB") private String evidenceJson;
-    @Lob @Column(name = "TIMELINE_JSON", nullable = false, columnDefinition = "CLOB") private String timelineJson;
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR) @Column(name = "EVIDENCE_JSON", nullable = false, columnDefinition = "CLOB") private String evidenceJson;
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR) @Column(name = "TIMELINE_JSON", nullable = false, columnDefinition = "CLOB") private String timelineJson;
 
     public PaperTradeEntity() { }
 

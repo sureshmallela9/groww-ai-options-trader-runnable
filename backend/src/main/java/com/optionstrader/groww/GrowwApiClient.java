@@ -8,6 +8,7 @@ import org.springframework.web.client.RestClient;
 
 @Service
 public class GrowwApiClient {
+    private final GrowwReadBudget readBudget = new GrowwReadBudget();
     private final RestClient client;
     private final RestClient instrumentsClient;
     private final GrowwAuthService auth;
@@ -26,6 +27,7 @@ public class GrowwApiClient {
     }
 
     public JsonNode getEnvelope(String path, Map<String, String> query) {
+        readBudget.acquire(path);
         JsonNode response = client.get()
             .uri(builder -> {
                 var uri = builder.path(path);

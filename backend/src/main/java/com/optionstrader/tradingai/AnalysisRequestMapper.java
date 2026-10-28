@@ -31,7 +31,7 @@ public class AnalysisRequestMapper {
         }
         rejectExtraFields(request, REQUEST_FIELDS, "request");
 
-        String symbol = requiredText(request, "symbol");
+        String symbol = requiredText(request, "symbol").trim();
         if (symbol.length() > 32) {
             throw new IllegalArgumentException("symbol must be 1-32 characters.");
         }

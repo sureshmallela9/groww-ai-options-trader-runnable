@@ -2,9 +2,9 @@
 
 ## What the integration does
 
-The dashboard can request historical candles from Groww, convert valid completed rows into the AI service’s OHLCV format, and send both the normalized bars and the original Groww response envelope to the configured Trading AI API.
+The dashboard can request historical candles from Groww, convert valid completed rows into the AI service’s OHLCV format, and send them to the configured Trading AI API. **Analyze full history only** sends the complete normalized series and original Groww response envelope. **Fetch candles + AI paper backtest** sends only the first 50 completed candles to AI for a signal, then reserves later candles for replay so the AI does not see future prices.
 
-Groww’s Backtesting API supplies historical market data; it does not run a strategy simulation or return backtest P&L. This project uses that data for AI analysis. Paper trade entries remain simulated, and this feature never submits broker orders.
+Groww’s Backtesting API supplies historical market data; the app runs its own one-trade paper simulation and calculates an illustrative result. A bullish AI trend maps to simulated LONG/BUY, bearish maps to SHORT/SELL, and mixed or unavailable analysis maps to HOLD. This is a test rule, not a live signal. No endpoint in this flow submits Groww broker orders.
 
 The backend also exposes read-only proxy routes for Groww’s live market data, expiry and contract discovery, user profile, holdings, positions, and instruments CSV. User profile and portfolio responses are not automatically added to AI requests.
 
@@ -13,9 +13,9 @@ The backend also exposes read-only proxy routes for Groww’s live market data, 
 1. Open the app at http://localhost:1111.
 2. In **Trading AI analysis**, choose an exchange, segment, Groww symbol, candle interval, and date/time range.
 3. Choose a range that returns at least 50 completed candles and no more than 5,000.
-4. Select **Fetch Groww candles + analyze**.
+4. Select **Fetch candles + AI paper backtest** to replay the history, or **Analyze full history only** to send the complete range for analysis without creating a paper trade.
 
-Times in the form are India local market time. The app drops rows with missing or invalid OHLCV fields and the currently unfinished candle. Groww’s original response, including any FNO open-interest values, is preserved in the AI request.
+Times in the form are India local market time. The app drops rows with missing or invalid OHLCV fields and the currently unfinished candle. Full-history analysis preserves Groww’s original response, including any FNO open-interest values. The backtest AI request includes only the raw candles through its 50-bar signal cutoff; later candles are kept for replay only.
 
 For derivatives, use Groww’s expiry and contracts routes below to discover a valid Groww symbol before requesting candles. Example symbols are `NSE-WIPRO`, `NSE-NIFTY`, and option symbols such as `NSE-NIFTY-30Sep25-24650-CE`.
 
@@ -57,9 +57,51 @@ The application calls Groww `GET /v1/historical/candles` and returns Groww’s s
 
 Optional text limits match the Trading AI API: `analysis_prompt` up to 1,500 characters and `knowledge_query` up to 500. The response contains Groww source metadata and the AI response. The full candle payload is sent upstream but is not duplicated in this response.
 
+### Fetch candles, ask AI for a decision, and paper backtest
+
+`POST http://localhost:1111/api/backtesting/run` accepts the same request body as `/api/backtesting/analyze` above. It fetches the selected history, sends the first 50 completed candles to the Trading AI API, and replays only later candles. The AI request's raw Groww response is trimmed to the same 50-candle cutoff; the app keeps the full response locally for replay.
+
+The app maps the documented AI `trend` field to a test action: `bullish` → `BUY/LONG`, `bearish` → `SELL/SHORT`, and `mixed`, missing, or failed analysis → `HOLD`. It opens at the first replay candle's open, uses the AI's `atr_14` (or a 14-bar ATR fallback), sets a 1 ATR stop and 2 ATR target, and closes at the first stop/target or the final candle close. If a candle touches both stop and target, the stop is applied first. The closed result is saved in the paper trade journal with `mode=BACKTEST`; it does not count toward today's paper-entry or risk-stop totals.
+
+Backtest fills use one price unit. Contract lot sizes, brokerage taxes, slippage, and market impact are not modeled. The UI and response label this limitation. The simulation never calls Groww order APIs.
+
+Successful response shape:
+
+~~~json
+{
+  "status": "ANALYZED",
+  "source": {
+    "provider": "GROWW",
+    "growwSymbol": "NSE-WIPRO",
+    "signalCandleCount": 50,
+    "replayCandleCount": 120,
+    "signalCutoff": "2025-09-24T13:20:00+05:30",
+    "futureCandlesSentToAi": false
+  },
+  "analysis": { "report_id": 42, "trend": "bullish", "indicators": { "atr_14": 0.52 } },
+  "decision": { "action": "BUY", "side": "LONG", "aiTrend": "bullish", "execution": "PAPER_BACKTEST_ONLY" },
+  "backtest": {
+    "state": "COMPLETED",
+    "signalBars": 50,
+    "replayBars": 120,
+    "stopLossAtrMultiplier": 1,
+    "takeProfitAtrMultiplier": 2,
+    "entryPrice": 245.6,
+    "exitPrice": 246.64,
+    "exitReason": "TAKE_PROFIT",
+    "trade": { "id": "BACKTEST-1234ABCD", "mode": "BACKTEST", "status": "CLOSED", "grossPnl": 1.04, "charges": 5.00, "netPnl": -3.96 }
+  },
+  "paperOrderPlaced": true,
+  "liveOrderSent": false,
+  "tradeAuthorized": false
+}
+~~~
+
+If AI returns an unsupported/missing trend, or risk settings reject a one-unit position, the response has `backtest.state=NO_TRADE` and explains why. A `HOLD` or failed analysis never creates a trade.
+
 ## Exact request sent to the Trading AI API
 
-The backend posts to `POST {TRADING_AI_ANALYSIS_URL}/analyze`. The existing core fields remain `symbol`, `interval`, and `bars`. The new `market_data` object carries the Groww request and full, original Groww response envelope.
+For `/api/backtesting/analyze`, the backend posts to `POST {TRADING_AI_ANALYSIS_URL}/analyze`. The existing core fields remain `symbol`, `interval`, and `bars`. The `market_data` object carries the Groww request and full, original Groww response envelope. `/api/backtesting/run` uses the same schema but sends only 50 normalized bars and a raw response envelope truncated to the signal cutoff; this needs no additional Trading AI fields.
 
 ~~~json
 {
@@ -110,9 +152,9 @@ Timestamps in the normalized `bars` are emitted with the India offset (`+05:30`)
 
 For `1week` and `1month`, the AI `interval` is sent as `7d` and `30d`; the exact Groww interval remains in `market_data.request.candle_interval`. The AI service should use that metadata when it needs to distinguish weekly from monthly bars.
 
-### Required Trading AI API change
+### Trading AI API support (implemented in 0.5.0)
 
-The previous AI request contract rejected unknown top-level fields. Update the AI API request model to accept the optional object:
+Trading AI 0.5.0 accepts the optional object below. The raw envelope is retained in report details; immediate responses and report lists contain market_data_summary. The options dashboard detects API compatibility through the health capability:
 
 - `market_data.provider`
 - `market_data.endpoint`
@@ -143,6 +185,7 @@ All routes below are read-only and proxy the matching Groww API data. The app ob
 | `GET /api/market/contracts?exchange=NSE&underlying_symbol=NIFTY&expiry_date=2026-10-29` | `GET /v1/historical/contracts` |
 | `POST /api/market/historical-candles` | `GET /v1/historical/candles` |
 | `POST /api/backtesting/analyze` | Fetch candles, then call Trading AI `POST /analyze` |
+| `POST /api/backtesting/run` | Send a 50-candle signal window to AI, then simulate and journal one paper entry and exit using later candles |
 
 Groww limits a historical request to 30 days for 1-5 minute bars, 90 days for 10-30 minute bars, and 180 days for hourly, daily, weekly, and monthly bars. The backend rejects ranges beyond these limits before sending the request. Groww permits up to 30 days per request for 1–5 minute bars, 90 days for 10–30 minute bars, and 180 days for hourly through monthly bars. The backend checks these limits before calling Groww. The Groww live-data API supports up to 50 instruments per LTP/OHLC request. The instrument CSV is a public static file; other Groww calls use the authenticated API base URL and the standard `Authorization: Bearer`, `Accept: application/json`, and `X-API-VERSION: 1.0` headers.
 
@@ -160,6 +203,9 @@ $body = @{
 } | ConvertTo-Json
 
 Invoke-RestMethod -Method Post -Uri "http://localhost:1111/api/backtesting/analyze" -ContentType "application/json" -Body $body
+
+# To run the simulated entry/exit replay instead, use the same request body:
+Invoke-RestMethod -Method Post -Uri "http://localhost:1111/api/backtesting/run" -ContentType "application/json" -Body $body
 ~~~
 
 Groww data availability depends on the user's subscription, instrument, interval, and date range. The integration does not request or test live account data while building or testing the application.

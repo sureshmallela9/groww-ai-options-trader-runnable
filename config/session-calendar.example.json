@@ -1,0 +1,6 @@
+{
+  "verified": false,
+  "sourceUrl": "https://www.nseindia.com/resources/exchange-communication-holidays",
+  "sessions": {},
+  "instructions": "Copy to session-calendar.json. Add actual verified exchange session dates as YYYY-MM-DD keys with open, close, entryCutoff and squareOff HH:mm values. Mark verified only after checking the exchange calendar. Missing dates block entries."
+}

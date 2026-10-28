@@ -1,6 +1,9 @@
 package com.optionstrader.tradingai;
 
 import java.util.Map;
+import java.util.UUID;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
@@ -62,6 +65,30 @@ public class TradingAiClient {
             .accept(MediaType.APPLICATION_JSON)
             .retrieve()
             .body(Object.class);
+    }
+
+    public Object internalGet(String path) {
+        requireEnabled();
+        if(!path.startsWith("/api/v1/"))throw new IllegalArgumentException("Versioned internal path required.");
+        return restClient.get().uri(path).header("X-Correlation-ID",correlation()).accept(MediaType.APPLICATION_JSON).retrieve().body(Object.class);
+    }
+
+    public Object internalPost(String path,Object body) { return internalPost(path,body,null); }
+    public Object internalPost(String path,Object body,String key) {
+        requireEnabled();
+        if(!path.startsWith("/api/v1/"))throw new IllegalArgumentException("Versioned internal path required.");
+        var request=restClient.post().uri(path).header("X-Correlation-ID",correlation()).contentType(MediaType.APPLICATION_JSON).accept(MediaType.APPLICATION_JSON).body(body);
+        if(key!=null&&!key.isBlank())request.header("Idempotency-Key",key);
+        return request.retrieve().body(Object.class);
+    }
+
+    private String correlation() {
+        var context=RequestContextHolder.getRequestAttributes();
+        if(context instanceof ServletRequestAttributes servlet){
+            Object id=servlet.getRequest().getAttribute("correlationId");
+            if(id!=null)return id.toString();
+        }
+        return UUID.randomUUID().toString();
     }
 
     public String baseUrl() {

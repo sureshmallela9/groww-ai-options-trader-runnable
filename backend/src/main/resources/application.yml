@@ -38,14 +38,26 @@ groww:
     poll-interval: ${GROWW_POLL_INTERVAL:1000}
 
 trading:
+  internal-token: ${INTERNAL_API_TOKEN:}
+  admin-token: ${TRADING_ADMIN_TOKEN:}
+  session:
+    calendar-file: ${TRADING_SESSION_CALENDAR:config/session-calendar.json}
+  platform:
+    monitor-enabled: true
+    monitor-delay-ms: 1000
+    outbox-delay-ms: 3000
   ai:
     enabled: ${TRADING_AI_ENABLED:true}
     analysis-url: ${TRADING_AI_ANALYSIS_URL:http://127.0.0.1:8000}
     timeout: ${TRADING_AI_TIMEOUT:20s}
+    max-in-flight: ${TRADING_AI_MAX_IN_FLIGHT:12}
+  backtest:
+    charges-per-trade: ${PAPER_BACKTEST_CHARGES:5.00}
   mode: PAPER
   live-trading-enabled: false
 
 server:
+  address: ${TRADING_HOST:127.0.0.1}
   port: 1111
 
 management:

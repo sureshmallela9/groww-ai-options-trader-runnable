@@ -11,16 +11,16 @@ flowchart LR
 ```
 
 - The Spring Boot app serves the dashboard and the `/api` routes on port **1111**.
-- Groww calls are read-only. The scheduled collector keeps the latest NIFTY/BANKNIFTY quote and a compact option-chain snapshot in memory. The dashboard can also fetch historical OHLCV candles on demand for analysis.
+- Groww calls are read-only. The scheduled collector keeps the latest NIFTY/BANKNIFTY quote and a compact option-chain snapshot in memory. The dashboard can also fetch historical OHLCV candles for analysis and paper backtesting.
 - Oracle stores risk settings and synthetic paper trades. Flyway owns schema changes.
-- The analysis adapter calls the separate Trading AI HTTP API. Manual analysis sends validated bars and optional market_data. Groww-backed analysis includes normalized OHLCV and the original Groww historical response in market_data. Credentials and tokens are never sent to AI; user profile, holdings, positions, and paper trades are not automatically sent.
-- AI results are informational. The response is marked `tradeAuthorized=false`; no analysis endpoint calls a Groww order route or paper execution route.
+- The analysis adapter calls the separate Trading AI HTTP API. Full-history analysis sends all validated bars and the original Groww response in market_data. The paper backtest sends only its first 50 completed candles to AI, then uses later candles only for replay. Credentials and tokens are never sent to AI; user profile, holdings, positions, and paper trades are not automatically sent.
+- The paper backtest maps the documented AI `trend` to BUY/LONG, SELL/SHORT, or HOLD, then simulates at most one entry and exit and saves a `BACKTEST` journal record. Every response keeps `tradeAuthorized=false`; no Groww order route is called.
 
 ## Historical candle data
 
 The app fetches Groww historical candles on demand through GET /v1/historical/candles. It does not synthesize bars from quote snapshots. Complete valid candles are normalized to OHLCV; FNO open interest remains in the original Groww response in the AI market_data field. Requests require 50-5,000 valid completed bars. The Groww call can return fewer candles than requested because data availability varies by instrument and interval.
 
-This is a historical-data-to-AI workflow, not a strategy simulator. The application does not calculate backtest fills, fees, or strategy P&L.
+`POST /api/backtesting/analyze` remains analysis-only. `POST /api/backtesting/run` uses the first 50 completed bars for its AI trend signal and replays later candles with a 1 ATR stop and 2 ATR target. Stop is preferred if a candle touches both levels; otherwise the trade exits at a target or at the last candle close. The journal record uses one price unit and a fixed configurable charge; lot sizes, taxes, slippage, and market impact are excluded. Backtest records do not count against today's paper entry limits.
 
 See [Groww backtesting and AI request contract](GROWW_BACKTESTING_AI_CONTRACT.md) for the exact Groww request and AI body.
 ## Configure and run
@@ -132,6 +132,7 @@ Base URL: `http://localhost:1111/api`.
 | GET /market/expiries, /market/contracts | Discover backtesting expiries and derivative contracts |
 | POST /market/historical-candles | Fetch and return Groww historical response envelope |
 | POST /backtesting/analyze | Fetch Groww candles and send bars plus raw response to Trading AI |
+| POST /backtesting/run | Get an AI trend from 50 candles, simulate and journal one paper entry and exit on later candles |
 | GET /groww/user/profile, /groww/portfolio/holdings, /groww/portfolio/positions, /groww/portfolio/position, /groww/instruments.csv | Read-only Groww profile, portfolio, and instrument metadata |
 | `GET /trades` | Saved synthetic paper-trade journal |
 | `GET /trades/{id}` | One synthetic paper trade and its result |
@@ -152,4 +153,4 @@ Current source fields for analysis are not suitable substitutes for candles: LTP
 
 Flyway creates `GROWW_TRADER.TRADING_SETTINGS` and `GROWW_TRADER.PAPER_TRADES`. The app keeps market snapshots and AI reports outside Oracle; reports are stored by the Trading AI service.
 
-Live execution remains disabled in configuration. Analysis cannot authorize a trade, and the app does not turn AI output into an order. Keep the application on a trusted local network; the project currently has no API authentication layer.
+Live execution remains disabled in configuration. The backtest's derived action only creates a simulated paper record; it never authorizes or submits a Groww order. Keep the application on a trusted local network; the project currently has no API authentication layer.
