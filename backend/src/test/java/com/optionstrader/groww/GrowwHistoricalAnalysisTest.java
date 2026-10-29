@@ -91,15 +91,19 @@ class GrowwHistoricalAnalysisTest {
             .hasMessageContaining("maximum date range of 30 days");
     }
     @Test
-    void rejectsLessThanFiftyCompleteCandles() throws Exception {
+    void analyzesLessThanFiftyCompleteCandles() throws Exception {
         JsonNode growwResponse = responseWithCandles(49);
         var request = new GrowwMarketDataService.HistoricalRequest(
             "NSE", "CASH", "NSE-WIPRO", "2025-09-24 09:15:00",
             "2025-09-24 15:30:00", "5minute", null, null);
 
-        assertThatThrownBy(() -> service.buildAnalysisInput(request, growwResponse))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("at least 50");
+        assertThat(service.buildAnalysisInput(request, growwResponse).analysisCandleCount()).isEqualTo(49);
+        assertThat(service.buildAnalysisInput(request, responseWithCandles(1)).analysisCandleCount()).isEqualTo(1);
+        assertThatThrownBy(() -> service.buildAnalysisInput(request, responseWithCandles(0)))
+            .hasMessageContaining("No completed, valid candles");
+        assertThat(service.buildAvailableAnalysisInput(request, responseWithCandles(0)).analysisCandleCount()).isZero();
+        assertThatThrownBy(() -> service.buildBacktestData(request, responseWithCandles(1)))
+            .hasMessageContaining("at least 51");
     }
 
     private JsonNode responseWithCandles(int count) {

@@ -19,6 +19,49 @@ import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.web.server.ResponseStatusException;
 
 class PaperPlatformServiceTest {
+    @Test void automaticEntryKeepsOnePositionEvenWhenManualPolicyAllowsMore() throws Exception {
+        var policy=json.<ObjectNode>valueToTree(PaperPlatformService.Policy.defaults());policy.put("maxOpenPositions",3);
+        service.updatePolicy(json.treeToValue(policy,PaperPlatformService.Policy.class));
+        service.submit(request(1),"first-excl-1234");
+        var next=decision.deepCopy();next.put("decisionId","DEC-exclusive-other123");next.put("symbol","OTHER");
+        when(ai.internalGet("/api/v1/decisions/DEC-exclusive-other123")).thenReturn(next);
+        when(gateway.quote("OTHER")).thenReturn(new NormalizedMarketGateway.QuoteData("OTHER",new BigDecimal("100"),
+            new BigDecimal("99.95"),new BigDecimal("100"),now,true,true,true,new BigDecimal("0.05"),new BigDecimal("100000"),1000,1000));
+        var rejected=service.submitAutomatic(new PaperPlatformService.Intent("DEC-exclusive-other123","PAPER",1,true),"next-excl-1234");
+        assertThat(rejected.path("state").asText()).isEqualTo("REJECTED");
+        assertThat(rejected.path("riskRejections").toString()).contains("one open position");
+    }
+    @Test void dashboardLimitsOnlyTightenTheIndependentPolicy(){
+        service.configureAutomation(()->Map.of("capitalLimit",500,"riskPerTradePercent",0.2,
+            "dailyLossPercent",1,"maxEntryOrdersPerDay",2,"stopAfterProfitableTrades",1),()->true);
+        var effective=(PaperPlatformService.Policy)service.status().get("policy");
+        assertThat(effective.capital()).isEqualByComparingTo("500");
+        assertThat(effective.riskPerTradePercent()).isEqualByComparingTo("0.2");
+        assertThat(effective.dailyLossPercent()).isEqualByComparingTo("1");
+        assertThat(effective.maxTradesPerDay()).isEqualTo(2);
+        assertThat(service.status()).containsEntry("autoEntryEnabled",true);
+    }
+    @Test void portfolioTracksOpenAndRealizedPnlIncludingEstimatedCosts(){
+        var first=service.submit(request(1),"portfolio-1234");
+        assertThat((BigDecimal)service.portfolio().get("unrealizedPnl")).isEqualByComparingTo("-0.25");
+        when(gateway.quote("TEST")).thenReturn(quote("102.2","102.1",now));
+        var closed=service.requestExit(first.path("intentId").asText());
+        assertThat(closed.path("state").asText()).isEqualTo("POSITION_CLOSED");
+        assertThat((BigDecimal)service.portfolio().get("realizedPnl")).isEqualByComparingTo("1.90");
+        assertThat((BigDecimal)service.portfolio().get("unrealizedPnl")).isZero();
+    }
+    @Test void configuredWinningTradeLimitPreventsTheNextEntry(){
+        service.configureAutomation(()->Map.of("stopAfterProfitableTrades",1),()->true);
+        var first=service.submit(request(1),"winning-1234");
+        when(gateway.quote("TEST")).thenReturn(quote("103.2","103.1",now));
+        service.refreshPosition(first.path("intentId").asText());
+        String other="DEC-winning-next123";var next=decision.deepCopy();next.put("decisionId",other);
+        when(ai.internalGet("/api/v1/decisions/"+other)).thenReturn(next);
+        when(gateway.quote("TEST")).thenReturn(quote("100","99.95",now));
+        var rejected=service.submit(new PaperPlatformService.Intent(other,"PAPER",1,true),"winning-next123");
+        assertThat(rejected.path("state").asText()).isEqualTo("REJECTED");
+        assertThat(rejected.path("riskRejections").toString()).contains("profitable-trade stop");
+    }
     final ObjectMapper json=new ObjectMapper();
     final Instant now=Instant.parse("2026-10-28T04:30:00Z");
     final Clock clock=Clock.fixed(now,ZoneOffset.UTC);

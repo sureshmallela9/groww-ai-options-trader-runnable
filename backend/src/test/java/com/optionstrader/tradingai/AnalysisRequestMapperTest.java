@@ -11,6 +11,11 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 class AnalysisRequestMapperTest {
+    @Test
+    void acceptsOneCompletedCandleButRejectsEmptyHistory() {
+        assertThat((java.util.List<?>)mapper.map(request("5m",1)).get("bars")).hasSize(1);
+        assertThatThrownBy(()->mapper.map(request("5m",0))).hasMessageContaining("1-5,000");
+    }
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AnalysisRequestMapper mapper = new AnalysisRequestMapper();
 
@@ -24,10 +29,8 @@ class AnalysisRequestMapperTest {
     }
 
     @Test
-    void rejectsFewerThanFiftyBars() {
-        assertThatThrownBy(() -> mapper.map(request("5m", 49)))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("50-5,000");
+    void acceptsFewerThanFiftyBars() {
+        assertThat((java.util.List<?>)mapper.map(request("5m",49)).get("bars")).hasSize(49);
     }
 
     @Test

@@ -12,6 +12,17 @@ import org.springframework.web.client.RestClientResponseException;
 
 @EnabledIfEnvironmentVariable(named="TRADING_AI_CONTRACT_URL",matches="http://127\\.0\\.0\\.1:[0-9]+")
 class TradingAiVersionedIntegrationTest {
+    @Test void automaticSelectionHttpContractFailsClosedWithoutAMaintainedUniverse(){
+        var request=json.createObjectNode();
+        var bar=json.createObjectNode().put("timestamp",Instant.now().minusSeconds(600).toString())
+            .put("open",100).put("high",103).put("low",99).put("close",101).put("volume",100000);
+        request.putArray("niftyBars").add(bar);
+        request.putArray("snapshots").addObject().put("symbol","TEST").putArray("bars").add(bar);
+        JsonNode response=json.valueToTree(client().internalPost("/api/v1/automation/select",request));
+        assertThat(response.path("status").asText()).isEqualTo("NO_TRADE");
+        assertThat(response.path("selected").isNull()).isTrue();
+        assertThat(response.path("executionAllowed").asBoolean()).isFalse();
+    }
     final ObjectMapper json=new ObjectMapper();
     TradingAiClient client(){
         String url=System.getenv("TRADING_AI_CONTRACT_URL");

@@ -220,16 +220,20 @@ public class GrowwMarketDataService {
     }
 
     public AnalysisInput buildAnalysisInput(HistoricalRequest request, JsonNode growwEnvelope) {
-        return buildAnalysisInput(request, growwEnvelope, MAX_AI_BARS, false);
+        return buildAnalysisInput(request, growwEnvelope, MAX_AI_BARS, false, false);
+    }
+
+    public AnalysisInput buildAvailableAnalysisInput(HistoricalRequest request, JsonNode growwEnvelope) {
+        return buildAnalysisInput(request, growwEnvelope, MAX_AI_BARS, false, true);
     }
 
     public BacktestData buildBacktestData(HistoricalRequest request, JsonNode growwEnvelope) {
-        AnalysisInput full = buildAnalysisInput(request, growwEnvelope, MAX_AI_BARS, false);
+        AnalysisInput full = buildAnalysisInput(request, growwEnvelope, MAX_AI_BARS, false, false);
         if (full.analysisCandleCount() <= 50) {
             throw new IllegalArgumentException("A paper backtest needs at least 51 complete candles: 50 for the AI signal and at least one later candle for simulated execution.");
         }
 
-        AnalysisInput signal = buildAnalysisInput(request, growwEnvelope, 50, true);
+        AnalysisInput signal = buildAnalysisInput(request, growwEnvelope, 50, true, false);
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> normalizedBars = (List<Map<String, Object>>) full.payload().get("bars");
         List<HistoricalBar> replayBars = normalizedBars.stream().map(this::toHistoricalBar).toList();
@@ -242,7 +246,7 @@ public class GrowwMarketDataService {
     }
 
     private AnalysisInput buildAnalysisInput(HistoricalRequest request, JsonNode growwEnvelope,
-                                             int maxAnalysisBars, boolean limitSourceResponse) {
+                                             int maxAnalysisBars, boolean limitSourceResponse, boolean allowEmpty) {
         JsonNode candles = growwEnvelope.path("payload").path("candles");
         if (!candles.isArray()) throw new IllegalStateException("Groww historical response did not contain a candles array.");
         if (candles.size() > MAX_AI_BARS) {
@@ -252,10 +256,13 @@ public class GrowwMarketDataService {
         TreeMap<LocalDateTime, Map<String, Object>> sorted = new TreeMap<>();
         Set<LocalDateTime> seen = new HashSet<>();
         LocalDateTime now = LocalDateTime.now(INDIA);
+        LocalDateTime requestedStart = parseGrowwTime(request.startTime(), "start_time");
+        LocalDateTime requestedEnd = parseGrowwTime(request.endTime(), "end_time");
         for (JsonNode candle : candles) {
             if (!candle.isArray() || candle.size() < 6) continue;
             LocalDateTime timestamp = candleTime(candle.get(0));
-            if (timestamp == null || !seen.add(timestamp) || candleEnd(timestamp, request.candleInterval()).isAfter(now)) continue;
+            if (timestamp == null || timestamp.isBefore(requestedStart) || timestamp.isAfter(requestedEnd)
+                || seen.contains(timestamp) || candleEnd(timestamp, request.candleInterval()).isAfter(now)) continue;
             Double open = finitePrice(candle.get(1));
             Double high = finitePrice(candle.get(2));
             Double low = finitePrice(candle.get(3));
@@ -263,6 +270,7 @@ public class GrowwMarketDataService {
             Double volume = finitePriceOrZero(candle.get(5));
             if (open == null || high == null || low == null || close == null || volume == null || volume < 0) continue;
             if (high < Math.max(open, close) || low > Math.min(open, close) || low > high) continue;
+            seen.add(timestamp);
 
             Map<String, Object> bar = new LinkedHashMap<>();
             bar.put("timestamp", timestamp.atZone(INDIA).toOffsetDateTime().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
@@ -273,9 +281,9 @@ public class GrowwMarketDataService {
             bar.put("volume", volume);
             sorted.put(timestamp, bar);
         }
-        if (sorted.size() < 50) {
-            throw new IllegalArgumentException("Groww returned only " + sorted.size()
-                + " complete, valid candles; Trading AI requires at least 50. Expand the date range or choose a shorter interval.");
+        if (sorted.isEmpty() && !allowEmpty) {
+            throw new IllegalArgumentException("No completed, valid candles are available (Groww returned "
+                + candles.size() + " raw rows). Check the symbol, segment and dates, or wait for the first candle to close.");
         }
 
         List<Map<String, Object>> allBars = new ArrayList<>(sorted.values());

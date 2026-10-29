@@ -33,11 +33,11 @@ The initial implementation is an explainable NSE cash-equity PAPER workflow. It 
 6. Corporate action adjustments are marked UNKNOWN. A reviewed adjusted historical dataset is needed for research spanning corporate actions.
 7. Fees are a configurable conservative paper estimate, not a statutory brokerage/tax calculator. Paper fills do not model depth, queue priority, partial fills or market impact.
 8. There is no enabled live order adapter. BrokerOrderPort states that limitation. Real order placement, protective-order verification, partial-fill reconciliation, recovery from uncertain broker status and live rollout require a subsequent reviewed implementation and account-level validation. No new code sends a Groww order.
-9. Automatic entry is off. The initial workspace requires explicit confirmation of a paper intent. It does not operate an unattended scanning-to-entry scheduler.
+9. Automatic paper entry is available through an explicitly started server-side controller. It validates all 50 maintained stock histories, selects one qualifying candidate, obtains a final AI decision and submits an independently risk-checked simulated intent. It remains off until started and pauses after a Java restart. Manual paper intents retain explicit per-intent confirmation. See [automatic paper trading](AUTOMATIC_PAPER_TRADING.md) for limits, data derivation, markers and P&L.
 10. Position management is long-only HOLD/WAIT/EXIT/NO_CHANGE. REDUCE and protective stop-update execution are future extensions; unsupported actions cannot create trades.
 11. Historical source usefulness, calibrated ML, strategy ensembles, options, portfolio optimization and a full historical exchange calendar are future research/data work. The code does not claim these are completed.
 12. The existing historical backtest remains a deliberately small one-trade experiment; this update does not establish profitable performance or a statistically validated strategy.
-13. Candidate work is bounded and process-local. Its job records persist, but a scan interrupted by a process restart must be resubmitted. It cannot create an automatic entry.
+13. Research scan jobs are bounded and process-local; their records persist, but an interrupted research job must be resubmitted. They do not place orders. The separate automatic-paper controller has a dedicated single worker, database-backed control/attempt records and independent risk validation. It uses the Python selector to choose at most one provisional stock.
 
 ## Data ownership and recovery
 

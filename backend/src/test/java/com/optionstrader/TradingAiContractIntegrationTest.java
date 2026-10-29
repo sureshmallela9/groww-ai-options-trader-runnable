@@ -15,6 +15,25 @@ import org.springframework.web.client.RestClient;
 @EnabledIfEnvironmentVariable(named="TRADING_AI_CONTRACT_URL", matches="http://127\\.0\\.0\\.1:[0-9]+")
 class TradingAiContractIntegrationTest {
     @Test
+    void oneCompletedCandleRoundTripsAndPersistsAnEarlyAnalysis() throws Exception {
+        ObjectMapper json=new ObjectMapper();
+        String url=System.getenv("TRADING_AI_CONTRACT_URL");
+        var client=new TradingAiClient(RestClient.builder().baseUrl(url).build(),url,true);
+        var service=new AnalysisService(new AnalysisRequestMapper(),client,true,Duration.ofSeconds(10),2);
+        var request=json.readTree("""
+            {"symbol":"EARLY-TEST","interval":"5m","bars":[
+              {"timestamp":"2026-01-05T09:15:00+05:30","open":100,"high":103,"low":99,"close":101,"volume":1000}]}
+            """);
+        JsonNode response=json.valueToTree(service.analyze(request));
+        assertThat(response.path("data_sufficiency").asText()).isEqualTo("partial");
+        assertThat(response.at("/timeframe/bars_received").asInt()).isEqualTo(1);
+        assertThat(response.at("/indicators/sma_50").isNull()).isTrue();
+        assertThat(response.at("/indicator_status/sma_50").asText()).contains("50 completed bars");
+        assertThat(response.path("tradeAuthorized").asBoolean()).isFalse();
+        JsonNode stored=json.valueToTree(service.report(response.path("report_id").asLong()));
+        assertThat(stored.at("/response/data_sufficiency").asText()).isEqualTo("partial");
+    }
+    @Test
     void roundTripsJavaMappingPythonAnalysisAndSavedProviderContext() {
         ObjectMapper json = new ObjectMapper();
         String url = System.getenv("TRADING_AI_CONTRACT_URL");

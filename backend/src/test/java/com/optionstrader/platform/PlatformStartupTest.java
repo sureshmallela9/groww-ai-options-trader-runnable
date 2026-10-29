@@ -21,6 +21,17 @@ import org.springframework.web.client.RestClientResponseException;
 })
 @DirtiesContext(classMode=DirtiesContext.ClassMode.AFTER_CLASS)
 class PlatformStartupTest {
+    @Test void automaticControlsRequireAuthenticationAndRefuseLiveOrders(){
+        assertThatThrownBy(()->client(false).get().uri("/api/v1/auto/status").retrieve().body(String.class))
+            .isInstanceOfSatisfying(RestClientResponseException.class,error->assertThat(error.getStatusCode().value()).isEqualTo(401));
+        JsonNode status=client(true).get().uri("/api/v1/auto/status").retrieve().body(JsonNode.class);
+        assertThat(status.at("/automation/enabled").asBoolean()).isFalse();
+        assertThatThrownBy(()->client(true).post().uri("/api/v1/auto/start").contentType(MediaType.APPLICATION_JSON)
+            .body(Map.of("mode","LIVE","confirmed",true)).retrieve().body(String.class))
+            .isInstanceOfSatisfying(RestClientResponseException.class,error->assertThat(error.getStatusCode().value()).isEqualTo(409));
+        String page=client(false).get().uri("/").retrieve().body(String.class);
+        assertThat(page).contains("automatic-paper.js","id=\"automatic-paper\"");
+    }
     @LocalServerPort int port;
     RestClient client(boolean authenticated){
         var builder=RestClient.builder().baseUrl("http://127.0.0.1:"+port);

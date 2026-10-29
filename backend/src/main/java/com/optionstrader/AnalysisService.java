@@ -268,7 +268,7 @@ public class AnalysisService {
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("status", "CANDLES_REQUIRED");
         response.put("provider", "Local Trading AI API");
-        response.put("analysis", "This project has no completed OHLCV candle history to analyze. Submit 50-5,000 actual completed candles; quote ticks and option-chain snapshots are not candles.");
+        response.put("analysis", "This project has no completed OHLCV candle history to analyze. Submit 1-5,000 actual completed candles; quote ticks and option-chain snapshots are not candles.");
         response.put("tradeAuthorized", false);
         response.put("totalLatencyMs", 0);
         return response;

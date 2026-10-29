@@ -15,7 +15,7 @@ async function api(path,body,method="POST",admin=false,key=null){
 function on(id,action){$(id).addEventListener("click",async()=>{const button=$(id);button.disabled=true;try{await action()}catch(error){message(error.message,true)}finally{button.disabled=false;if(id==="submit")button.disabled=!decision||decision.action!=="BUY";}});}
 function text(parent,tag,value){const node=document.createElement(tag);node.textContent=value;parent.append(node);return node;}
 async function refresh(){
- const status=await api("/risk/status");$("connection").textContent="Connected · Paper mode · Automatic entries off";
+ const status=await api("/risk/status");$("connection").textContent="Connected · Paper mode · Automatic entries "+(status.autoEntryEnabled?"ON":"off");
  const risk=$("riskStatus");risk.replaceChildren();text(risk,"p","Kill switch: "+(status.killSwitch?"ACTIVE":"off"));
  text(risk,"p","Session: "+(status.calendar.verified?(status.calendar.sessionOpen?"open":"closed"):"calendar not verified"));
  text(risk,"p","Capital ₹"+status.policy.capital+" · max "+status.policy.maxOpenPositions+" open position(s) · "+status.pendingEvents+" pending events");
@@ -52,7 +52,7 @@ function showDecision(value){
   }}catch{/* Malformed source links remain plain recorded metadata. */}}
  }
 }
-on("connect",async()=>{token=$("token").value.trim();$("token").value="";await refresh();message("Connected. Load market context and a current universe snapshot.");await universe(false);});
+on("connect",async()=>{token=$("token").value.trim();window.AutoPaperUI?.connect(token);$("token").value="";await refresh();message("Connected. Load market context and a current universe snapshot.");await universe(false);});
 on("refresh",refresh);on("universe",()=>universe(true));on("loadUniverse",()=>universe(false));
 on("market",async()=>{
  const index=await api("/market-data/candles/query",{symbol:"NIFTY",exchange:"NSE",interval:"5m",lookbackCandles:100});

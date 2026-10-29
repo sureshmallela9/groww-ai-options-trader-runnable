@@ -42,8 +42,8 @@ public class AnalysisRequestMapper {
         String interval = normalizeInterval(rawInterval);
 
         JsonNode barsNode = request.path("bars");
-        if (!barsNode.isArray() || barsNode.size() < 50 || barsNode.size() > 5000) {
-            throw new IllegalArgumentException("bars must contain 50-5,000 completed OHLCV candles.");
+        if (!barsNode.isArray() || barsNode.isEmpty() || barsNode.size() > 5000) {
+            throw new IllegalArgumentException("bars must contain 1-5,000 completed OHLCV candles.");
         }
 
         List<Map<String, Object>> bars = new ArrayList<>(barsNode.size());

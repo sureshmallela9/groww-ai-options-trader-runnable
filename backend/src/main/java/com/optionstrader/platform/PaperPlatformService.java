@@ -62,6 +62,12 @@ public class PaperPlatformService {
     private final Clock clock;
     private final TransactionTemplate transaction;
     private final boolean monitorEnabled;
+    private java.util.function.Supplier<Map<String,Object>> dashboardRules=Map::of;
+    private java.util.function.BooleanSupplier automationEnabled=()->false;
+    public void configureAutomation(java.util.function.Supplier<Map<String,Object>> rules,
+                                    java.util.function.BooleanSupplier enabled){
+        dashboardRules=rules;automationEnabled=enabled;
+    }
     public PaperPlatformService(JdbcTemplate db,ObjectMapper json,NormalizedMarketGateway gateway,
             TradingAiClient ai,SessionCalendar calendar,Clock clock,PlatformTransactionManager manager,
             @Value("${trading.platform.monitor-enabled:true}") boolean monitorEnabled){
@@ -78,6 +84,15 @@ public class PaperPlatformService {
         try{
             ObjectNode merged=json.valueToTree(Policy.defaults());
             if(root.path("policy").isObject())root.path("policy").fields().forEachRemaining(field->merged.set(field.getKey(),field.getValue()));
+            Map<String,Object> settings=dashboardRules.get();
+            for(var pair:Map.of("capital","capitalLimit","riskPerTradePercent","riskPerTradePercent",
+                    "dailyLossPercent","dailyLossPercent","maxTradesPerDay","maxEntryOrdersPerDay").entrySet()) {
+                if(settings.containsKey(pair.getValue())) {
+                    BigDecimal bound=new BigDecimal(settings.get(pair.getValue()).toString());
+                    merged.put(pair.getKey(),merged.path(pair.getKey()).decimalValue().min(bound));
+                }
+            }
+            merged.put("maxPositionValue",merged.path("maxPositionValue").decimalValue().min(merged.path("capital").decimalValue()));
             return json.treeToValue(merged,Policy.class);
         }
         catch(Exception error){throw new IllegalStateException("Stored risk policy is invalid.",error);}
@@ -118,11 +133,22 @@ public class PaperPlatformService {
     public Map<String,Object> status(){
         ObjectNode root=read(db.queryForObject("SELECT PAYLOAD_JSON FROM PLATFORM_STATE WHERE STATE_ID='RISK'",String.class));
         var policy=policy(root);var positions=intents().stream().filter(this::open).toList();
-        return Map.of("mode","PAPER","liveExecutionEnabled",false,"autoEntryEnabled",false,"killSwitch",root.path("killSwitch").asBoolean(),
+        return Map.of("mode","PAPER","liveExecutionEnabled",false,"autoEntryEnabled",automationEnabled.getAsBoolean(),"killSwitch",root.path("killSwitch").asBoolean(),
             "policy",policy,"calendar",calendar.status(clock),"openPositions",positions,
             "pendingEvents",db.queryForObject("SELECT COUNT(*) FROM PLATFORM_OUTBOX WHERE STATUS='PENDING'",Integer.class));
     }
     private boolean open(ObjectNode value){return List.of("POSITION_OPEN","EXIT_PENDING").contains(value.path("state").asText());}
+    public Map<String,Object> portfolio(){
+        var rows=intents();
+        BigDecimal realized=rows.stream().filter(this::closedToday).map(row->row.path("realizedPnl").decimalValue()).reduce(BigDecimal.ZERO,BigDecimal::add);
+        BigDecimal unrealized=rows.stream().filter(this::open).map(row->row.path("unrealizedPnl").decimalValue()).reduce(BigDecimal.ZERO,BigDecimal::add);
+        long wins=rows.stream().filter(this::closedToday).filter(row->row.path("realizedPnl").decimalValue().signum()>0).count();
+        boolean stale=rows.stream().filter(this::open).anyMatch(row->row.has("incident")||!row.has("quoteTimestamp")||
+            Duration.between(Instant.parse(row.path("quoteTimestamp").asText()),clock.instant()).getSeconds()>10);
+        return Map.of("mode","PAPER","sessionDate",sessionDate(),"realizedPnl",realized,"unrealizedPnl",unrealized,
+            "netPnl",realized.add(unrealized),"profitableTrades",wins,"hasStaleMarks",stale,"positions",rows,
+            "updatedAt",now(),"liveExecutionEnabled",false);
+    }
     private void transition(ObjectNode value,String state,String reason){
         value.put("state",state);value.put("updatedAt",now());
         var timeline=value.withArray("timeline").addObject();
@@ -134,6 +160,10 @@ public class PaperPlatformService {
         catch(Exception error){throw new IllegalStateException(error);}
     }
     public ObjectNode submit(Intent body,String key){
+        return submit(body,key,false);
+    }
+    public ObjectNode submitAutomatic(Intent body,String key){return submit(body,key,true);}
+    private ObjectNode submit(Intent body,String key,boolean exclusive){
         if(body==null||body.decisionId()==null||!body.decisionId().matches("DEC-[A-Za-z0-9-]{8,80}")||
            !"PAPER".equals(body.mode())||!body.confirmed()||key==null||!key.matches("[A-Za-z0-9_-]{8,100}"))
             throw new IllegalArgumentException("A decision ID, PAPER mode, explicit confirmation and Idempotency-Key are required.");
@@ -165,6 +195,7 @@ public class PaperPlatformService {
             transition(value,"RISK_VALIDATION","Independent Java hard limits evaluated.");
             int quantity=body.quantity()==null?decision.path("requestedQuantity").asInt():body.quantity();
             var errors=validate(decision,quote,quantity,root,policy);
+            if(exclusive&&intents().stream().anyMatch(this::open))errors.add("Automatic mode monitors one open position at a time.");
             if(!errors.isEmpty()){
                 value.set("riskRejections",json.valueToTree(errors));
                 transition(value,"REJECTED",String.join("; ",errors));
@@ -234,6 +265,9 @@ public class PaperPlatformService {
         if(all.stream().anyMatch(row->open(row)&&quote.symbol().equals(row.path("symbol").asText())))errors.add("An active position already exists for this symbol.");
         var today=all.stream().filter(row->sessionDate().equals(row.path("sessionDate").asText())&&row.has("filledQuantity")).toList();
         if(today.size()>=p.maxTradesPerDay())errors.add("Maximum daily entries reached.");
+        int winLimit=Integer.parseInt(dashboardRules.get().getOrDefault("stopAfterProfitableTrades",20).toString());
+        if(all.stream().filter(this::closedToday).filter(row->row.path("realizedPnl").decimalValue().signum()>0).count()>=winLimit)
+            errors.add("Configured profitable-trade stop reached.");
         BigDecimal pnl=dailyPnl(all);
         if(pnl.compareTo(p.capital().multiply(p.dailyLossPercent()).divide(new BigDecimal("-100")))<=0)errors.add("Daily realized/unrealized loss limit reached.");
         BigDecimal remainingDailyRisk=p.capital().multiply(p.dailyLossPercent()).divide(new BigDecimal("100")).add(pnl);
@@ -320,7 +354,7 @@ public class PaperPlatformService {
             BigDecimal fee=amount(value,"entryPrice").add(quote.bid()).multiply(BigDecimal.valueOf(quantity))
                 .multiply(p.roundTripCostBps()).divide(new BigDecimal("20000"),2,RoundingMode.HALF_UP);
             BigDecimal pnl=quote.bid().subtract(amount(value,"entryPrice")).multiply(BigDecimal.valueOf(quantity)).subtract(fee);
-            value.put("unrealizedPnl",pnl);
+            value.put("unrealizedPnl",pnl);value.put("estimatedCharges",fee);value.put("markedAt",now());
             var session=calendar.status(clock);
             String reason=root.path("killSwitch").asBoolean()?"KILL_SWITCH":
                 "EXIT_PENDING".equals(value.path("state").asText())?"PENDING_RISK_EXIT":

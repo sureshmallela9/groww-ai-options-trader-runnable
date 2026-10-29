@@ -9,7 +9,7 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.server.ResponseStatusException;
 import com.optionstrader.groww.GrowwReadBudget;
-@RestControllerAdvice(assignableTypes=PlatformController.class)
+@RestControllerAdvice(assignableTypes={PlatformController.class,AutoTradingController.class})
 public class PlatformErrors {
     @ExceptionHandler(Exception.class) public ResponseEntity<Map<String,Object>> error(Exception error,HttpServletRequest request){
         int status=error instanceof GrowwReadBudget.LimitExceeded?429:error instanceof ResponseStatusException response?response.getStatusCode().value():
