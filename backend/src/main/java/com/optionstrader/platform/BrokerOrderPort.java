@@ -1,6 +1,6 @@
 package com.optionstrader.platform;
 import java.util.Map;
-/** Future broker execution boundary. There is deliberately no live adapter enabled. */
+/** Legacy extension contract. The managed real path uses typed GrowwOrderAdapter through LiveExecutionService. */
 public interface BrokerOrderPort {
     Map<String,Object> capabilities();
     default Object submit(Object command){throw new UnsupportedOperationException("Live execution is unavailable; use the paper intent engine.");}

@@ -1,11 +1,17 @@
 # Groww AI Options Trader
 
+Analysis context, multiple timeframes and historical research replay are documented in [Analysis research guide](docs/ANALYSIS_RESEARCH_V2.md). Both interfaces include a labelled synthetic example; replay reports do not create paper positions.
+
 Java 21 / Spring Boot application that reads Groww market data when configured and stores simulated paper trades and risk settings in Oracle. Market-data integration is read-only; live orders are not implemented.
+
+## Workspace navigation
+
+Start at http://localhost:1111/workspace/overview. Every sidebar screen has a direct route, supports refresh and browser history, and shares one connection. Reports and Research tools are integrated into the workspace. Read [Workspace architecture and navigation](docs/WORKSPACE_ARCHITECTURE.md) for component responsibilities, routes, connection behavior and verification.
 
 ## Current operation mode
 
 - **Real market data:** Read-only Groww data polling is enabled by default when credentials are configured. NIFTY and BANKNIFTY quotes are polled once per second; a compact NIFTY option-chain snapshot is refreshed about every 30 seconds.
-- **Paper execution:** Entries and exits remain synthetic. The application does not submit, modify, cancel, or track Groww orders. It always reports mode PAPER and liveExecutionEnabled false.
+- **Execution modes:** The workspace defaults to PAPER. REAL can be selected and explicitly started from the UI after account/IP checks. Real trades use Groww MIS orders and broker-confirmed fills; initial real sizing is capped at 1× allocated capital. See [real trading setup and validation](docs/REAL_TRADING.md).
 - **Analysis and backtesting:** Full-history analysis sends validated Groww candles to your local Trading AI API at TRADING_AI_ANALYSIS_URL (default http://127.0.0.1:8000). The separate paper-backtest flow uses the AI trend to simulate one entry and exit on later candles. It never submits a Groww order.
 
 See [Architecture and API Guide](docs/ARCHITECTURE_AND_API.md) for the component diagram, API contracts, sample requests/responses, and run instructions.
@@ -53,7 +59,7 @@ Open http://localhost:1111. Oracle migrations create `GROWW_TRADER.TRADING_SETTI
 
 ## Analysis API
 
-POST http://localhost:1111/api/analyze accepts caller-supplied candles with 50-5,000 validated bars. POST /api/backtesting/analyze fetches Groww candles and sends the full normalized history plus original response to AI. POST /api/backtesting/run gets a trend from the first 50 bars, then creates a paper-only replay record from later candles. The Trading AI API must accept market_data as documented in the integration contract.
+POST http://localhost:1111/api/analyze accepts caller-supplied candles with 1-5,000 completed validated bars (unavailable indicators are reported explicitly). POST /api/backtesting/analyze fetches Groww candles and sends the full normalized history plus original response to AI. POST /api/backtesting/run gets a trend from the first 50 bars, then creates a paper-only replay record from later candles. The Trading AI API must accept market_data as documented in the integration contract.
 
 The UI uses POST /api/analyze/stream for caller-supplied requests. GET /api/ai/status checks API health, while GET /api/ai/reports?kind=analysis and GET /api/ai/reports/{report_id} proxy saved reports.
 

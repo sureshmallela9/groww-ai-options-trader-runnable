@@ -13,7 +13,9 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping("/api/v1")
 public class PlatformController {
-    private final PaperPlatformService paper;private final NormalizedMarketGateway market;
+    private final PaperPlatformService paper;
+    @org.springframework.beans.factory.annotation.Autowired private ProfitLossReportService pnlReports;
+    @org.springframework.beans.factory.annotation.Autowired private ExecutionModeService modes;private final NormalizedMarketGateway market;
     private final SessionCalendar calendar;private final TradingAiClient ai;private final Clock clock;
     private final String admin,internal;
     public PlatformController(PaperPlatformService paper,NormalizedMarketGateway market,SessionCalendar calendar,
@@ -27,7 +29,16 @@ public class PlatformController {
             admin.getBytes(StandardCharsets.UTF_8),supplied.getBytes(StandardCharsets.UTF_8)))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,"A separate administrator token is required.");
     }
-    @GetMapping("/health") public Object health(){return Map.of("status","UP","apiVersion","v1","mode","PAPER","liveExecutionEnabled",false);}
+    @GetMapping("/health") public Object health(){return Map.of("status","UP","apiVersion","v1","mode",paper.mode(),"liveExecutionEnabled",paper.liveEnabled());}
+    @GetMapping("/reports/profit-loss") public Object profitLoss(@RequestParam String from,@RequestParam String to,
+            @RequestParam(defaultValue="DAY")String groupBy,@RequestParam(required=false)String mode){
+        return pnlReports.report(from,to,groupBy,mode==null?modes.mode():mode);
+    }
+    @GetMapping("/execution") public Object execution(){return modes.status();}
+    @PostMapping("/execution/preflight") public Object preflight(){return modes.preflight();}
+    @GetMapping("/positions") public Object positionsManaged(){return Map.of("positions",paper.portfolio().get("positions"));}
+    @PostMapping("/positions/{id}/close") public Object closeManaged(@PathVariable String id){return paper.requestExit(id);}
+
     @GetMapping("/market-data/quote") public Object quote(@RequestParam String symbol,@RequestParam(defaultValue="NSE")String exchange){
         if(!"NSE".equals(exchange))throw new IllegalArgumentException("Only NSE is supported initially.");
         return market.quoteResponse(symbol,calendar,clock);
@@ -41,6 +52,11 @@ public class PlatformController {
     @GetMapping("/account/positions") public Object positions(){return market.positions();}
     @GetMapping("/research/universe") public Object universe(){return ai.internalGet("/api/v1/universe");}
     @PostMapping("/research/universe/refresh") public Object refreshUniverse(){return ai.internalPost("/api/v1/universe/refresh",Map.of());}
+    @GetMapping("/research/news/daily-reports") public Object dailyNews(){return ai.internalGet("/api/v1/news/daily-reports");}
+    @GetMapping("/research/news/daily-reports/{day}") public Object dailyNews(@PathVariable String day){
+        java.time.LocalDate.parse(day);
+        return ai.internalGet("/api/v1/news/daily-reports/"+day);
+    }
     @PostMapping("/research/news/analyze") public Object news(@RequestBody JsonNode body){return ai.internalPost("/api/v1/news/analyze",body);}
     @PostMapping("/research/news/collect") public Object collect(){return ai.internalPost("/api/v1/news/collect",Map.of());}
     @PostMapping("/research/market") public Object market(@RequestBody JsonNode body){return ai.internalPost("/api/v1/analysis/market",body);}
@@ -56,11 +72,15 @@ public class PlatformController {
     @GetMapping("/trade-intents") public Object intents(){return Map.of("intents",paper.intents());}
     @GetMapping("/trade-intents/{id}") public Object intent(@PathVariable String id){return paper.intent(id);}
     @GetMapping("/orders/{id}") public Object order(@PathVariable String id){return paper.intent(id);}
-    @GetMapping("/paper/positions") public Object paperPositions(){return Map.of("positions",paper.intents().stream()
+    private void paperOnly(String id){if("REAL".equals(paper.intent(id).path("mode").asText()))throw new ResponseStatusException(HttpStatus.CONFLICT,"This is a real position. Use the mode-aware position controls.");}
+    @GetMapping("/paper/positions") public Object paperPositions(){return Map.of("positions",paper.allIntents().stream().filter(value->!"REAL".equals(value.path("mode").asText()))
         .filter(value->"POSITION_OPEN".equals(value.path("state").asText())||"EXIT_PENDING".equals(value.path("state").asText())).toList());}
-    @PostMapping("/paper/positions/{id}/refresh") public Object refresh(@PathVariable String id){return paper.refreshPosition(id);}
-    @PostMapping("/paper/positions/{id}/close") public Object close(@PathVariable String id){return paper.requestExit(id);}
+    @PostMapping("/paper/positions/{id}/refresh") public Object refresh(@PathVariable String id){paperOnly(id);return paper.refreshPosition(id);}
+    @PostMapping("/paper/positions/{id}/close") public Object close(@PathVariable String id){paperOnly(id);return paper.requestExit(id);}
     @GetMapping("/risk/status") public Object risk(){return paper.status();}
+    @GetMapping("/risk/intraday/defaults") public Object intradayDefaults(){return IntradayRules.paperDefaults();}
+    @PutMapping("/risk/intraday") public Object intraday(@RequestBody IntradayRules body,
+            @RequestHeader(value="X-Admin-Token",required=false)String supplied){admin(supplied);return paper.updateIntraday(body);}
     @PostMapping("/risk/kill-switch") public Object kill(@RequestBody JsonNode body,
             @RequestHeader(value="X-Admin-Token",required=false)String supplied){
         if(!body.path("enabled").isBoolean())throw new IllegalArgumentException("enabled must be boolean.");

@@ -9,3 +9,5 @@ dist/
 .vscode/
 
 config/session-calendar.json
+
+**/data/groww-api-audit/

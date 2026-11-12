@@ -12,7 +12,7 @@ public final class GrowwReadBudget {
     }
     private static final ThreadLocal<Boolean> PRIORITY=ThreadLocal.withInitial(()->false);
     private static final class Window {final Deque<Long> second=new ArrayDeque<>(),minute=new ArrayDeque<>();}
-    private final Window live=new Window(),other=new Window();
+    private final Window live=new Window(),other=new Window(),orders=new Window();
     private final LongSupplier timer;
     public GrowwReadBudget(){this(System::nanoTime);}
     GrowwReadBudget(LongSupplier timer){this.timer=timer;}
@@ -22,10 +22,11 @@ public final class GrowwReadBudget {
     }
     public synchronized void acquire(String path){
         boolean market=path.startsWith("/v1/live-data/")||path.startsWith("/v1/option-chain/");
-        Window window=market?live:other;long now=timer.getAsLong();
+        boolean order=java.util.Set.of("/v1/order/create","/v1/order/modify","/v1/order/cancel").contains(path);
+        Window window=order?orders:market?live:other;long now=timer.getAsLong();
         trim(window.second,now,1_000_000_000L);trim(window.minute,now,60_000_000_000L);
-        int second=market?(PRIORITY.get()?10:8):(PRIORITY.get()?20:16);
-        int minute=market?(PRIORITY.get()?300:220):(PRIORITY.get()?500:400);
+        int second=order?8:market?(PRIORITY.get()?10:8):(PRIORITY.get()?20:16);
+        int minute=order?200:market?(PRIORITY.get()?300:220):(PRIORITY.get()?500:400);
         long wait=0;
         if(window.second.size()>=second)wait=Math.max(wait,1_000_000_000L-(now-window.second.getFirst()));
         if(window.minute.size()>=minute)wait=Math.max(wait,60_000_000_000L-(now-window.minute.getFirst()));

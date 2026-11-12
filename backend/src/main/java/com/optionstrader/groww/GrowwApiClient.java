@@ -45,6 +45,27 @@ public class GrowwApiClient {
         return response;
     }
 
+
+    /** No automatic retries: execution service persists reference IDs before sending writes. */
+    public static final class BrokerRejection extends IllegalStateException {
+        public BrokerRejection(String code){super("Groww rejected the request ("+code+"). No execution was accepted.");}
+    }
+    public JsonNode post(String path,Object body) {
+        if(!java.util.Set.of("/v1/order/create","/v1/order/modify","/v1/order/cancel","/v1/margins/detail/orders","/v1/margins/detail/orders?segment=CASH").contains(path))
+            throw new IllegalArgumentException("Unsupported broker write route.");
+        readBudget.acquire(path);
+        JsonNode response;
+        try{response=client.post().uri(path).header("Authorization","Bearer "+auth.accessToken())
+            .header("Accept","application/json").header("X-API-VERSION","1.0")
+            .contentType(org.springframework.http.MediaType.APPLICATION_JSON).body(body).retrieve().body(JsonNode.class);
+        }catch(org.springframework.web.client.RestClientResponseException failure){
+            int status=failure.getStatusCode().value();if(status==401||status==403)throw new BrokerRejection("HTTP_"+status);throw failure;
+        }
+        if(response!=null&&"FAILURE".equals(response.path("status").asText())&&java.util.Set.of("GA001","GA005","GA006").contains(response.path("error").path("code").asText()))
+            throw new BrokerRejection(response.path("error").path("code").asText());
+        if(response==null||!"SUCCESS".equals(response.path("status").asText()))throw new IllegalStateException("Broker request was not acknowledged; reconcile the original reference before retrying.");
+        return response.path("payload");
+    }
     public String downloadInstrumentsCsv() {
         String response = instrumentsClient.get()
             .uri("/instruments/instrument.csv")

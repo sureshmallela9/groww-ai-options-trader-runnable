@@ -40,7 +40,8 @@ public class TradingService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> settings() {
-        return settingsMap(loadSettings());
+        var result=new java.util.LinkedHashMap<>(settingsMap(loadSettings()));
+        result.put("legacyActivePositions",trades.findAll().stream().filter(t->"OPEN".equals(t.getStatus())).count());return result;
     }
 
     @Transactional
@@ -88,7 +89,7 @@ public class TradingService {
             Map.entry("currentTime", OffsetDateTime.now(zone).toString()),
             Map.entry("entryStart", "09:15"),
             Map.entry("entryCutoff", "14:58"),
-            Map.entry("squareOffStart", "14:57"),
+            Map.entry("squareOffStart", "14:59"),
             Map.entry("trades", all()));
     }
 
@@ -242,7 +243,7 @@ public class TradingService {
         return Map.of("capitalLimit", s.getCapitalLimit(), "riskPerTradePercent", s.getRiskPerTradePercent(),
             "dailyLossPercent", s.getDailyLossPercent(), "maxEntryOrdersPerDay", s.getMaxEntryOrdersPerDay(),
             "stopAfterProfitableTrades", s.getStopAfterProfitableTrades(), "entryStart", "09:15",
-            "entryCutoff", "14:58", "squareOffStart", "14:57", "timezone", "Asia/Kolkata", "mode", "PAPER");
+            "entryCutoff", "14:58", "squareOffStart", "14:59", "timezone", "Asia/Kolkata", "mode", "PAPER");
     }
 
     private Map<String, Object> toMap(PaperTradeEntity t) {

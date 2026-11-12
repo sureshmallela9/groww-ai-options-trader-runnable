@@ -19,7 +19,7 @@ test("SSE decodes Unicode across byte boundaries", async()=>{
   assert.equal(JSON.parse(events[0].data).summary,"₹100");assert.equal(released,true);
 });
 test("saved report UI reads response, report ID, excerpts and provenance",()=>{
-  const html=fs.readFileSync(path.join(__dirname,"../backend/src/main/resources/static/index.html"),"utf8");
+  const html=fs.readFileSync(path.join(__dirname,"../backend/src/main/resources/static/workspace-legacy.js"),"utf8");
   const start=html.indexOf("function displayValue("),end=html.indexOf("async function refreshAiStatus",start);
   assert.ok(start>=0&&end>start);
   const elements={analysisBody:{innerHTML:""},aiMode:{textContent:""}};

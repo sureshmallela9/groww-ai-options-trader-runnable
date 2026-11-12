@@ -258,6 +258,13 @@ public class GrowwMarketDataService {
         LocalDateTime now = LocalDateTime.now(INDIA);
         LocalDateTime requestedStart = parseGrowwTime(request.startTime(), "start_time");
         LocalDateTime requestedEnd = parseGrowwTime(request.endTime(), "end_time");
+        // These cash indices are price references, not traded instruments.
+        // Groww legitimately returns null volume for them. The OHLCV contract
+        // needs a numeric placeholder; provenance makes its meaning explicit.
+        boolean referenceIndex = "CASH".equals(request.segment()) &&
+            (("NSE".equals(request.exchange()) && Set.of("NSE-NIFTY", "NSE-BANKNIFTY").contains(request.growwSymbol()))
+             || ("BSE".equals(request.exchange()) && "BSE-SENSEX".equals(request.growwSymbol())));
+        int unavailableIndexVolumes = 0;
         for (JsonNode candle : candles) {
             if (!candle.isArray() || candle.size() < 6) continue;
             LocalDateTime timestamp = candleTime(candle.get(0));
@@ -268,9 +275,12 @@ public class GrowwMarketDataService {
             Double low = finitePrice(candle.get(3));
             Double close = finitePrice(candle.get(4));
             Double volume = finitePriceOrZero(candle.get(5));
+            boolean indexVolumeMissing = referenceIndex && candle.get(5).isNull();
+            if (indexVolumeMissing) volume = 0d;
             if (open == null || high == null || low == null || close == null || volume == null || volume < 0) continue;
             if (high < Math.max(open, close) || low > Math.min(open, close) || low > high) continue;
             seen.add(timestamp);
+            if (indexVolumeMissing) unavailableIndexVolumes++;
 
             Map<String, Object> bar = new LinkedHashMap<>();
             bar.put("timestamp", timestamp.atZone(INDIA).toOffsetDateTime().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
@@ -299,6 +309,11 @@ public class GrowwMarketDataService {
         Map<String, Object> marketData = new LinkedHashMap<>();
         marketData.put("provider", "GROWW");
         marketData.put("endpoint", "/v1/historical/candles");
+        if (unavailableIndexVolumes > 0) {
+            marketData.put("volume_status", "NOT_APPLICABLE_INDEX");
+            marketData.put("bars_with_unavailable_volume", unavailableIndexVolumes);
+            marketData.put("volume_normalization", "Zero is an OHLCV schema placeholder for unavailable index volume, not measured traded volume. Use index prices for context only.");
+        }
         Map<String, Object> growwRequest = new LinkedHashMap<>();
         growwRequest.put("exchange", request.exchange());
         growwRequest.put("segment", request.segment());
@@ -464,7 +479,7 @@ public class GrowwMarketDataService {
     private String normalizeExchangeSymbols(String symbols) {
         if (symbols == null || symbols.isBlank()) throw new IllegalArgumentException("exchange_symbols is required.");
         List<String> values = List.of(symbols.split(",")).stream().map(String::trim).filter(s -> !s.isBlank()).toList();
-        if (values.isEmpty() || values.size() > 50 || values.stream().anyMatch(s -> !s.matches("[A-Za-z0-9_-]{1,64}"))) {
+        if (values.isEmpty() || values.size() > 50 || values.stream().anyMatch(s -> !s.matches("[A-Za-z0-9_&.-]{1,64}"))) {
             throw new IllegalArgumentException("exchange_symbols must contain 1-50 valid instrument symbols.");
         }
         return String.join(",", values);
@@ -484,7 +499,7 @@ public class GrowwMarketDataService {
 
     private String requiredSymbol(String value, String field, int maxLength) {
         if (value == null || value.isBlank() || value.trim().length() > maxLength
-                || !value.trim().matches("[A-Za-z0-9._-]+")) {
+                || !value.trim().matches("[A-Za-z0-9._&-]+")) {
             throw new IllegalArgumentException(field + " must contain 1-" + maxLength + " valid characters.");
         }
         return value.trim();

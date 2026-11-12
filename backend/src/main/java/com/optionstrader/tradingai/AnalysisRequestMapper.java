@@ -21,7 +21,7 @@ public class AnalysisRequestMapper {
     private static final Pattern INTERVAL = Pattern.compile(
         "(?i)^\\s*([0-9]+)\\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)\\s*$");
     private static final Set<String> REQUEST_FIELDS = Set.of(
-        "symbol", "interval", "analysis_prompt", "knowledge_query", "bars", "market_data");
+        "symbol", "interval", "analysis_prompt", "knowledge_query", "bars", "market_data", "analysis_options");
     private static final Set<String> CANDLE_FIELDS = Set.of(
         "timestamp", "open", "high", "low", "close", "volume");
 
@@ -67,9 +67,27 @@ public class AnalysisRequestMapper {
             }
             payload.put("market_data", marketData.deepCopy());
         }
+        JsonNode options = request.get("analysis_options");
+        if (options != null && !options.isNull()) {
+            if (!options.isObject()) throw new IllegalArgumentException("analysis_options must be an object.");
+            payload.put("analysis_options", options.deepCopy());
+        }
         copyOptionalText(request, payload, "analysis_prompt", 1500);
         copyOptionalText(request, payload, "knowledge_query", 500);
         return payload;
+    }
+
+    public Map<String,Object> mapReplay(JsonNode request) {
+        if(request==null||!request.isObject())throw new IllegalArgumentException("A historical replay request is required.");
+        var copy=((com.fasterxml.jackson.databind.node.ObjectNode)request).deepCopy();
+        JsonNode replayOptions=copy.remove("replay_options");
+        var result=map(copy);
+        if(request.path("bars").size()<51)throw new IllegalArgumentException("Replay requires at least 51 completed bars.");
+        if(replayOptions!=null&&!replayOptions.isNull()) {
+            if(!replayOptions.isObject())throw new IllegalArgumentException("replay_options must be an object.");
+            result.put("replay_options",replayOptions.deepCopy());
+        }
+        return result;
     }
 
     private Map<String, Object> mapBar(JsonNode bar, int index, Set<Instant> timestamps) {

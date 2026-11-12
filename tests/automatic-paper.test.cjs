@@ -24,17 +24,22 @@ test('connected dashboard renders net P&L, position dots and coloured fill marke
   const elements={},get=id=>elements[id]??=new Element();
   const document={hidden:false,getElementById:get,createElement:tag=>new Element(tag),createElementNS:(_,tag)=>new Element(tag),head:new Element(),body:new Element()};
   const row={symbol:'TEST',state:'POSITION_CLOSED',entryPrice:100,exitPrice:103,realizedPnl:2.8,filledQuantity:1,remainingQuantity:0};
-  const context={document,Intl,Date,Number,Set,Math,console,setInterval(){},async fetch(url){return {ok:true,async json(){
+  const context={PaperTradeMarkers:require('../backend/src/main/resources/static/trade-markers.js'),document,Intl,Date,Number,Set,Math,console,setInterval(){},async fetch(url){return {ok:true,async json(){
     if(url.includes('/auto/chart'))return {bars:[{timestamp:'2026-10-28T04:00:00Z',close:100}],markers:[{side:'BUY',time:'2026-10-28T04:00:00Z',price:100},{side:'SELL',time:'2026-10-28T04:05:00Z',price:103}]};
-    return {automation:{enabled:true,state:'ENTRY_WINDOW_CLOSED',referenceSymbol:'NIFTY'},portfolio:{positions:[row],realizedPnl:2.8,unrealizedPnl:0,netPnl:2.8},risk:{policy:{capital:10000,riskPerTradePercent:.5,dailyLossPercent:2,maxTradesPerDay:5},calendar:{verified:true,sessionOpen:true,entryAllowed:false,reason:'New entries stopped at 14:57 IST.',open:'09:15',entryEndsAt:'14:57',nextEntrySession:'2026-10-29 09:15 IST'}}};
+    return {automation:{enabled:true,state:'ENTRY_WINDOW_CLOSED',referenceSymbol:'NIFTY'},portfolio:{positions:[row],realizedPnl:2.8,unrealizedPnl:0,netPnl:2.8},risk:{dailyLossLimit:180,policy:{capital:10000,riskPerTradePercent:.5,dailyLossPercent:2,maxTradesPerDay:5},calendar:{verified:true,sessionOpen:true,entryAllowed:false,reason:'New entries stopped at 14:57 IST.',open:'09:15',entryEndsAt:'14:57',nextEntrySession:'2026-10-29 09:15 IST'}}};
   }};}};
   vm.createContext(context);vm.runInContext(fs.readFileSync(require.resolve('../backend/src/main/resources/static/automatic-paper.js'),'utf8'),context);
   await context.AutoPaperUI.connect('synthetic-test-token');
   assert.match(get('auto-net').textContent,/2\.80/);
   assert.match(get('auto-rules').textContent,/New entries stopped at 14:57 IST/);
+  assert.match(get('auto-rules').textContent,/2% of configured intraday exposure.*180\.00/);
   assert.match(get('auto-rules').textContent,/2026-10-29 09:15 IST/);
   assert.match(get('auto-chart-symbol').textContent,/NIFTY · reference index/);
-  assert.match(get('auto-positions').textContent,/SELL \/ CLOSED/);
-  const circles=get('auto-chart').children.filter(e=>e.tag==='circle');assert.equal(circles.length,2);
-  assert.equal(circles[0].attributes.fill,'#38d9a9');assert.equal(circles[1].attributes.fill,'#ff7185');
+  assert.match(get('auto-positions').textContent,/SELL \/ Exit.*Closed/);
+  const markers=get('auto-chart').children.filter(e=>e.attributes['data-order-side']);assert.equal(markers.length,2);
+  assert.equal(markers[0].attributes['data-order-side'],'BUY');assert.equal(markers[1].attributes['data-order-side'],'SELL');
+  assert.equal(markers[0].children[2].attributes.fill,'#50a7ff');assert.equal(markers[1].children[2].attributes.fill,'#c59bff');
+  assert.match(markers[0].attributes['aria-label'],/Actual paper BUY fill/);
+  row.positionSide='SHORT';row.exitPrice=97;await context.AutoPaperUI.refresh();
+  assert.match(get('auto-positions').textContent,/BUY \/ Cover.*Closed/);
 });

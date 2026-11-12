@@ -28,6 +28,7 @@ public class ApiController {
     private final GrowwAuthService growwAuth;
     private final GrowwMarketDataService marketData;
     private final ObjectMapper objectMapper;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.optionstrader.platform.ExecutionModeService executionModes;
 
     public ApiController(TradingService trading, AnalysisService analysis, BacktestingService backtesting,
                          GrowwAuthService growwAuth, GrowwMarketDataService marketData,
@@ -42,7 +43,7 @@ public class ApiController {
 
     @GetMapping("/health")
     public Map<String, Object> health() {
-        return Map.of("status", "UP", "mode", "PAPER", "liveExecutionEnabled", false);
+        return Map.of("status", "UP", "mode", executionModes==null?"PAPER":executionModes.mode(), "liveExecutionEnabled", executionModes!=null&&executionModes.enabled());
     }
 
     @GetMapping("/dashboard")
@@ -64,6 +65,11 @@ public class ApiController {
         return analysis.streamAnalysis(body);
     }
 
+    @PostMapping("/ai/replay")
+    public Map<String,Object> replay(@RequestBody(required=false) JsonNode body) {
+        return analysis.replay(body);
+    }
+
     @GetMapping("/ai/status")
     public Map<String, Object> aiStatus() {
         Map<String, Object> status = new LinkedHashMap<>(analysis.status());
@@ -79,10 +85,7 @@ public class ApiController {
 
     @GetMapping("/ai/reports")
     public Object aiReports(@RequestParam(defaultValue = "analysis") String kind) {
-        if (!"analysis".equalsIgnoreCase(kind)) {
-            throw new IllegalArgumentException("Only analysis reports are available.");
-        }
-        return analysis.reports();
+        return analysis.reports(kind.toLowerCase(java.util.Locale.ROOT));
     }
 
     @GetMapping("/ai/reports/{reportId}")
@@ -164,10 +167,12 @@ public class ApiController {
 
     @PostMapping("/backtesting/analyze")
     public Map<String, Object> backtestingAnalyze(@RequestBody(required = false) JsonNode body) {
-        GrowwMarketDataService.HistoricalRequest request = marketData.parseHistoricalRequest(body);
+        GrowwMarketDataService.HistoricalRequest request = marketData.parseHistoricalRequest(historyBody(body, false));
         JsonNode growwResponse = marketData.fetchHistoricalCandles(request);
         GrowwMarketDataService.AnalysisInput input = marketData.buildAnalysisInput(request, growwResponse);
-        Map<String, Object> aiResult = analysis.analyze(objectMapper.valueToTree(input.payload()));
+        var payload = new LinkedHashMap<String,Object>(input.payload());
+        copyResearchOptions(body, payload, false);
+        Map<String, Object> aiResult = analysis.analyze(objectMapper.valueToTree(payload));
 
         Map<String, Object> source = new LinkedHashMap<>();
         source.put("provider", "GROWW");
@@ -188,6 +193,32 @@ public class ApiController {
         return result;
     }
 
+    private JsonNode historyBody(JsonNode body, boolean replay) {
+        if(body==null||!body.isObject())return body;
+        var copy=((com.fasterxml.jackson.databind.node.ObjectNode)body).deepCopy();
+        copy.remove("analysis_options");
+        if(replay)copy.remove("replay_options");
+        return copy;
+    }
+    private void copyResearchOptions(JsonNode body,Map<String,Object> payload,boolean replay) {
+        for(String name:replay?List.of("analysis_options","replay_options"):List.of("analysis_options")) {
+            JsonNode value=body.get(name);
+            if(value!=null&&!value.isNull()){
+                if(!value.isObject())throw new IllegalArgumentException(name+" must be an object.");
+                payload.put(name,value.deepCopy());
+            }
+        }
+    }
+    @PostMapping("/backtesting/replay")
+    public Map<String,Object> historicalReplay(@RequestBody JsonNode body) {
+        var request=marketData.parseHistoricalRequest(historyBody(body,true));
+        if(!"CASH".equals(request.segment()))throw new IllegalArgumentException("Research replay supports cash-equity prices only; FNO lot sizing is not modeled.");
+        var raw=marketData.fetchHistoricalCandles(request);
+        var input=marketData.buildAnalysisInput(request,raw);
+        var payload=new LinkedHashMap<String,Object>(input.payload());copyResearchOptions(body,payload,true);
+        return analysis.replay(objectMapper.valueToTree(payload));
+    }
+
     @PostMapping("/backtesting/run")
     public Map<String, Object> backtestingRun(@RequestBody(required = false) JsonNode body) {
         return backtesting.run(body);
@@ -200,7 +231,7 @@ public class ApiController {
     public Map<String, Object> trade(@PathVariable String id) { return trading.get(id); }
 
     @PostMapping("/paper/execute")
-    public Map<String, Object> execute() { return trading.execute(); }
+    public Map<String, Object> execute() { throw new org.springframework.web.server.ResponseStatusException(HttpStatus.CONFLICT,"Legacy synthetic entries are disabled. Use the authenticated paper trade-intent API with the one-active-position rule."); }
 
     @PostMapping("/paper/close/{id}")
     public Map<String, Object> close(@PathVariable String id) { return trading.close(id); }

@@ -40,6 +40,17 @@ public class TradingAiClient {
         return response == null ? Map.of() : response;
     }
 
+    public Map<String,Object> replay(Map<String,Object> payload) {
+        requireEnabled();
+        var result=restClient.post().uri("/replay").contentType(MediaType.APPLICATION_JSON)
+            .accept(MediaType.APPLICATION_JSON).body(payload).retrieve().body(MAP_TYPE);
+        return result==null?Map.of():result;
+    }
+    public Object replayReports() {
+        requireEnabled();
+        return restClient.get().uri("/reports?kind=replay").accept(MediaType.APPLICATION_JSON).retrieve().body(Object.class);
+    }
+
     public Object health() {
         requireEnabled();
         return restClient.get()

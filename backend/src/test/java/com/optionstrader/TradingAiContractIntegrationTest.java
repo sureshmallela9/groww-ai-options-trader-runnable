@@ -14,6 +14,29 @@ import org.springframework.web.client.RestClient;
 /** Runs only against the isolated synthetic API started by the verification tool. */
 @EnabledIfEnvironmentVariable(named="TRADING_AI_CONTRACT_URL", matches="http://127\\.0\\.0\\.1:[0-9]+")
 class TradingAiContractIntegrationTest {
+    @Test void researchContextAndReplayRoundTripWithoutAuthorizingOrders() {
+        ObjectMapper json=new ObjectMapper();String url=System.getenv("TRADING_AI_CONTRACT_URL");
+        var client=new TradingAiClient(RestClient.builder().baseUrl(url).build(),url,true);
+        var service=new AnalysisService(new AnalysisRequestMapper(),client,true,Duration.ofSeconds(20),2);
+        var payload=json.createObjectNode();payload.put("symbol","DEMO");payload.put("interval","5m");
+        var bars=payload.putArray("bars");for(int i=0;i<70;i++){
+            var bar=bars.addObject();bar.put("timestamp",Instant.parse("2026-01-05T03:45:00Z").plusSeconds(i*300L).toString());
+            bar.put("open",100+i);bar.put("high",103+i);bar.put("low",99+i);bar.put("close",101+i);bar.put("volume",1000+i);
+        }
+        payload.putObject("analysis_options").put("mode","historical").putArray("context_intervals").add("15m").add("1h");
+        JsonNode analyzed=json.valueToTree(service.analyze(payload));
+        assertThat(analyzed.at("/analysis_context/data_quality/freshness").asText()).isEqualTo("historical_not_live_verified");
+        assertThat(analyzed.at("/analysis_context/timeframes").size()).isEqualTo(3);
+        assertThat(analyzed.at("/analysis_context/decision/execution_allowed").asBoolean()).isFalse();
+        payload.putObject("replay_options").put("holding_bars",2).put("fee_bps",5);
+        JsonNode replay=json.valueToTree(service.replay(payload));
+        assertThat(replay.path("report_type").asText()).isEqualTo("replay");
+        assertThat(replay.at("/metrics/trades").asInt()).isPositive();assertThat(replay.path("tradeAuthorized").asBoolean()).isFalse();
+        JsonNode saved=json.valueToTree(service.report(replay.path("report_id").asLong()));
+        assertThat(saved.at("/response/input_snapshot/bars").size()).isEqualTo(70);
+        JsonNode listing=json.valueToTree(service.reports("replay"));assertThat(listing.path("total").asInt()).isPositive();
+        assertThat(listing.at("/reports/0/response/trades").isMissingNode()).isTrue();
+    }
     @Test
     void oneCompletedCandleRoundTripsAndPersistsAnEarlyAnalysis() throws Exception {
         ObjectMapper json=new ObjectMapper();

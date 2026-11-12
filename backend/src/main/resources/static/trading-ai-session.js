@@ -37,7 +37,7 @@
       analysis_prompt:'Analyze all completed candles available since 09:15 India time today. Explain early positive and negative signs, missing indicators and risks. Analysis only.'};
   }
   const poller=createPoller({
-    isVisible:()=>!document.hidden,
+    isVisible:()=>!document.hidden&&(!document.body.hasAttribute('data-workspace')||!document.querySelector('[data-screen="analysis"]').hidden),
     async poll() {
       const response=await fetch('/api/backtesting/analyze/session',{method:'POST',
         headers:{'Content-Type':'application/json'},body:JSON.stringify(settings())});

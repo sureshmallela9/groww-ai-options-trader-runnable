@@ -1,8 +1,12 @@
+Current workflow: see [News-led research and daily reports](NEWS_LED_PAPER_TRADING.md) for the news-first pipeline, US closing context, one-position hold rule and 14:59 IST exit deadline.
+
 # Automatic paper trading and chart markers
 
 ## Start and stop
 
-Restart both apps, refresh `http://localhost:1111/` with Ctrl+F5, and use **Automatic paper trading**. Connect with the same INTERNAL_API_TOKEN used by both apps. Select Paper simulation, confirm automatic simulated entries, and choose **Start / apply paper auto mode**. The detailed paper workspace has the same panel and shares its connection token with it.
+Restart the trading app, open `http://localhost:1111/`, and refresh with Ctrl+F5. Choose **Connect workspace** in the header and enter the shared access token. Open **Automation** from the sidebar, confirm automatic simulated entries, then choose **Start auto mode** (or **Apply auto settings** for an already-running session). Paper trading remains selected. The header Real trading control now opens account/IP checks and explicit activation; see [REAL_TRADING.md](REAL_TRADING.md). This document describes the PAPER workflow.
+
+The workspace separates Overview, Automation, AI Analysis, Reports, Positions, Risk & settings, and Research tools. Each screen has a direct route under `/workspace/`. The latest AI response appears as readable indicator cards, reasons, risks and a proposal in AI Analysis; raw JSON is in Full technical evidence. The connected manual workflow is available at `/workspace/tools`; the older `/research-tools.html` URL opens that screen too. Saved reports have their own `/workspace/reports` route.
 
 The process runs on the Java server until **Stop new entries** is selected, even if the browser is closed. A Java restart pauses automatic entries; the existing independent position risk monitor still manages open paper positions after restart. **Stop and exit paper positions** stops entries first, then requests fresh-quote simulated exits. Missing quotes or depth leave EXIT_PENDING, with no invented sell fill.
 

@@ -106,6 +106,47 @@ class GrowwHistoricalAnalysisTest {
             .hasMessageContaining("at least 51");
     }
 
+    @Test void indexNullVolumesKeepRealOhlcAndDocumentThePlaceholderWithoutChangingTheSource() {
+        var raw=responseWithCandles(50);
+        for(var row:raw.path("payload").path("candles"))((ArrayNode)row).set(5,mapper.nullNode());
+        var request=new GrowwMarketDataService.HistoricalRequest("NSE","CASH","NSE-NIFTY",
+            "2025-09-24 09:15:00","2025-09-24 15:30:00","5minute",null,null);
+        var input=service.buildAnalysisInput(request,raw);
+        var result=mapper.valueToTree(input.payload());
+        assertThat(input.analysisCandleCount()).isEqualTo(50);
+        assertThat(result.at("/bars/0/close").asDouble()).isEqualTo(101);
+        assertThat(result.at("/bars/0/volume").asDouble()).isZero();
+        assertThat(result.at("/market_data/volume_status").asText()).isEqualTo("NOT_APPLICABLE_INDEX");
+        assertThat(result.at("/market_data/bars_with_unavailable_volume").asInt()).isEqualTo(50);
+        assertThat(raw.at("/payload/candles/0/5").isNull()).isTrue();
+    }
+    @Test void missingStockOrDerivativeVolumeStillRejectsTheHistory() {
+        var raw=responseWithCandles(2);
+        for(var row:raw.path("payload").path("candles"))((ArrayNode)row).set(5,mapper.nullNode());
+        for(String symbol:java.util.List.of("NSE-WIPRO","NSE-UNKNOWN","NSE-NIFTY-30Sep25-FUT")){
+            var request=new GrowwMarketDataService.HistoricalRequest("NSE",symbol.endsWith("FUT")?"FNO":"CASH",symbol,
+                "2025-09-24 09:15:00","2025-09-24 15:30:00","5minute",null,null);
+            assertThatThrownBy(()->service.buildAnalysisInput(request,raw)).hasMessageContaining("No completed, valid candles");
+        }
+    }
+    @Test void indexHandlingStillRejectsInvalidPricesAndMalformedNonNullVolume() {
+        var raw=responseWithCandles(3);var rows=(ArrayNode)raw.at("/payload/candles");
+        ((ArrayNode)rows.get(0)).set(5,mapper.nullNode());
+        ((ArrayNode)rows.get(1)).set(5,mapper.getNodeFactory().textNode("invalid"));
+        ((ArrayNode)rows.get(2)).set(2,mapper.getNodeFactory().numberNode(1));
+        var request=new GrowwMarketDataService.HistoricalRequest("NSE","CASH","NSE-NIFTY",
+            "2025-09-24 09:15:00","2025-09-24 15:30:00","5minute",null,null);
+        assertThat(service.buildAnalysisInput(request,raw).analysisCandleCount()).isEqualTo(1);
+    }
+    @Test void exchangeSymbolsWithAmpersandsPassValidationButQueryInjectionStillFails() throws Exception {
+        var valid=mapper.readTree("""
+            {"exchange":"NSE","segment":"CASH","groww_symbol":"NSE-M&M",
+             "start_time":"2025-09-24 09:15:00","end_time":"2025-09-24 15:30:00","candle_interval":"5minute"}
+            """);
+        assertThat(service.parseHistoricalRequest(valid).growwSymbol()).isEqualTo("NSE-M&M");
+        ((com.fasterxml.jackson.databind.node.ObjectNode)valid).put("groww_symbol","NSE-M&M?segment=FNO");
+        assertThatThrownBy(()->service.parseHistoricalRequest(valid)).isInstanceOf(IllegalArgumentException.class);
+    }
     private JsonNode responseWithCandles(int count) {
         var root = mapper.createObjectNode();
         root.put("status", "SUCCESS");

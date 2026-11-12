@@ -12,7 +12,7 @@ import org.springframework.web.client.RestClient;
 @EnableConfigurationProperties(GrowwApiProperties.class)
 public class GrowwConfiguration {
     @Bean
-    RestClient growwRestClient(GrowwApiProperties properties) {
+    RestClient growwRestClient(GrowwApiProperties properties,GrowwApiAuditInterceptor audit) {
         HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2))
             .build();
@@ -21,11 +21,12 @@ public class GrowwConfiguration {
         return RestClient.builder()
             .baseUrl(properties.getBaseUrl())
             .requestFactory(requestFactory)
+            .requestInterceptor(audit)
             .build();
     }
 
     @Bean
-    RestClient growwInstrumentsRestClient() {
+    RestClient growwInstrumentsRestClient(GrowwApiAuditInterceptor audit) {
         HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(3))
             .build();
@@ -34,6 +35,7 @@ public class GrowwConfiguration {
         return RestClient.builder()
             .baseUrl("https://growwapi-assets.groww.in")
             .requestFactory(requestFactory)
+            .requestInterceptor(audit)
             .build();
     }
 }

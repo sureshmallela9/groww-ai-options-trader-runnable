@@ -100,6 +100,31 @@ public class AnalysisService {
         }
     }
 
+    public Map<String,Object> replay(JsonNode request) {
+        final Map<String,Object> payload;
+        try { payload=requestMapper.mapReplay(request); }
+        catch(IllegalArgumentException error){return requestRejected(error.getMessage());}
+        if(!enabled||!tradingAi.enabled())return serviceUnavailable("Trading AI integration is disabled.");
+        if(!inFlightAnalyses.tryAcquire())return busy();
+        long started=System.nanoTime();
+        try {
+            var result=new LinkedHashMap<String,Object>(tradingAi.replay(payload));
+            long elapsed=(System.nanoTime()-started)/1_000_000;updateLatency(elapsed);
+            result.put("tradeAuthorized",false);result.put("totalLatencyMs",elapsed);return result;
+        } catch(RestClientResponseException error){return upstreamError(error,(System.nanoTime()-started)/1_000_000);}
+        catch(ResourceAccessException error){return serviceUnavailable("Replay timed out; it may have saved a report. Check saved replay reports before retrying.");}
+        catch(RuntimeException error){return serviceUnavailable("Replay failed ("+error.getClass().getSimpleName()+").");}
+        finally {inFlightAnalyses.release();}
+    }
+
+    public Object reports(String kind) {
+        if("analysis".equals(kind))return reports();
+        if(!"replay".equals(kind))throw new IllegalArgumentException("Only analysis and replay reports are supported.");
+        try {return tradingAi.replayReports();}
+        catch(RestClientResponseException error){return reportError(error);}
+        catch(Exception error){return Map.of("status","UNAVAILABLE","error","Replay reports could not be loaded.");}
+    }
+
     private Map<String, Object> analyzeWithBoundedRetry(Map<String, Object> payload) {
         for (int attempt = 0; ; attempt++) {
             try {
@@ -177,6 +202,8 @@ public class AnalysisService {
         status.put("lastCompletedAt", lastCompletedAt == null ? null : lastCompletedAt.toString());
         status.put("readyForLiveTrading", false);
         status.put("marketDataSupported", false);
+        status.put("analysisContextSupported", false);
+        status.put("historicalReplaySupported", false);
         status.put("maxInFlightAnalyses", maxInFlightAnalyses);
 
         if (!enabled || !tradingAi.enabled()) {
@@ -202,6 +229,10 @@ public class AnalysisService {
             }
             if (health instanceof Map<?, ?> values) {
                 status.put("apiVersion", values.get("api_version"));
+                if(values.get("capabilities") instanceof Map<?,?> capabilities){
+                    status.put("analysisContextSupported",Boolean.TRUE.equals(capabilities.get("analysis_context_v2")));
+                    status.put("historicalReplaySupported",Boolean.TRUE.equals(capabilities.get("historical_replay")));
+                }
                 status.put("knowledge", values.get("knowledge"));
                 status.put("reportStorage", values.get("report_storage"));
                 status.put("analysisWorkers", values.get("analysis_workers"));

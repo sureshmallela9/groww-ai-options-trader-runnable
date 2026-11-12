@@ -1,0 +1,51 @@
+{
+  "request": {
+    "order_reference_id": "GTFixtureEntry00001",
+    "quantity": 9,
+    "price": 164.69,
+    "transaction_type": "BUY",
+    "trading_symbol": "PINELABS",
+    "exchange": "NSE",
+    "segment": "CASH",
+    "product": "MIS",
+    "order_type": "LIMIT",
+    "trigger_price": 0
+  },
+  "detail": {
+    "groww_order_id": "ORDER_FIXTURE_ENTRY",
+    "order_reference_id": "GTFixtureEntry00001",
+    "order_status": "EXECUTED",
+    "quantity": 9,
+    "filled_quantity": 9,
+    "remaining_quantity": 0,
+    "price": 164.69,
+    "average_fill_price": 164.61,
+    "created_at": "2026-11-11T09:20:25.986",
+    "transaction_type": "BUY",
+    "trading_symbol": "PINELABS",
+    "exchange": "NSE",
+    "segment": "CASH",
+    "product": "MIS",
+    "order_type": "LIMIT",
+    "trigger_price": 0.0
+  },
+  "trades": [
+    {
+      "groww_order_id": "ORDER_FIXTURE_ENTRY",
+      "groww_trade_id": "TRADE_FIXTURE_ENTRY",
+      "exchange_trade_id": "EXCHANGE_FIXTURE_TRADE",
+      "exchange_order_id": null,
+      "trade_status": "EXECUTED",
+      "quantity": 9,
+      "price": 164.61,
+      "trade_date_time": "2026-11-11T09:20:26",
+      "created_at": "2026-11-11T09:20:26",
+      "transaction_type": "BUY",
+      "trading_symbol": "PINELABS",
+      "exchange": "NSE",
+      "segment": "CASH",
+      "product": "MIS",
+      "remark": null
+    }
+  ]
+}

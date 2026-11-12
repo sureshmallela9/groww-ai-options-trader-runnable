@@ -65,9 +65,10 @@ public class SessionCalendar {
             LocalTime open=LocalTime.parse(session.path("open").asText());
             LocalTime close=LocalTime.parse(session.path("close").asText());
             LocalTime cutoff=LocalTime.parse(session.path("entryCutoff").asText("14:58"));
-            LocalTime square=LocalTime.parse(session.path("squareOff").asText("14:57"));
+            LocalTime square=LocalTime.parse(session.path("squareOff").asText("14:59"));
             if(!open.isBefore(close)||cutoff.isBefore(open)||cutoff.isAfter(close)||square.isBefore(open)||square.isAfter(close))
                 return blocked(result,"INVALID_SESSION_TIMES","Session open/close, entry cutoff or square-off times are invalid.",false);
+            if(square.isAfter(LocalTime.of(14,59)))square=LocalTime.of(14,59);
             boolean marketOpen=!now.toLocalTime().isBefore(open)&&now.toLocalTime().isBefore(close);
             LocalTime end=cutoff.isBefore(square)?cutoff:square;
             boolean allowed=marketOpen&&now.toLocalTime().isBefore(end);
